@@ -50,26 +50,26 @@
 - [x] APP_PASSWORD（ログインパスワード）→ デフォルト: nyuko2024
 
 ## テスト
-- [ ] 認証テスト（vitest）
-- [ ] CSV生成テスト（vitest）
-- [ ] あいまいマッチングテスト（vitest）
+- [x] 認証テスト（vitest）
+- [x] CSV生成テスト（vitest）
+- [x] あいまいマッチングテスト（vitest）
 
 ## ハイブリッド商品マスター機能
-- [ ] DBスキーマ追加（productsテーブル: jan, code, nameKeywords, syncedAt）
-- [ ] マイグレーションSQL実行
-- [ ] sheets.tsをDB優先・スプレッドシートフォールバックに変更
-- [ ] 同期APIエンドポイント（POST /api/sync-products）
-- [ ] 同期状況確認APIエンドポイント（GET /api/sync-status）
-- [ ] フロントエンド管理画面に「商品マスター同期」ボタン追加
-- [ ] 同期件数・最終同期日時の表示
+- [x] DBスキーマ追加（productsテーブル: jan, code, nameKeywords, syncedAt）
+- [x] マイグレーションSQL実行
+- [x] sheets.tsをDB優先・スプレッドシートフォールバックに変更
+- [x] 同期APIエンドポイント（POST /api/sync-products）
+- [x] 同期状況確認APIエンドポイント（GET /api/sync-status）
+- [x] フロントエンド管理画面に「商品マスター同期」ボタン追加
+- [x] 同期件数・最終同期日時の表示
 
 ## フェーズ1: JANコード照合アプリの完成
 - [x] productsテーブルDBスキーマ追加・マイグレーション実行
 - [x] sheets.tsをDB優先・スプレッドシートフォールバックに変更
 - [x] syncRouter.ts（同期API）作成・登録
 - [x] 環境変数設定（GOOGLE_SERVICE_ACCOUNT_JSON, DOCUMENT_AI_PROCESSOR_ID, SPREADSHEET_ID）
-- [ ] Main.tsxにDB同期ボタン（件数・最終同期日時表示）追加
-- [ ] 動作確認（JANコード照合で変換できることを確認）
+- [x] Main.tsxにDB同期ボタン（件数・最終同期日時表示）追加
+- [x] 動作確認（JANコード照合で変換できることを確認）
 
 ## フェーズ2: JANなし商品の学習機能
 - [ ] 未登録商品一覧に「キーワード登録」ボタンを追加

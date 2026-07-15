@@ -198,6 +198,27 @@ export function matchByName(productName: string, products: ProductRecord[]): str
       }
     }
 
+    // パス3: サブストリングマッチング（トークン内の重複なし全マッチ）
+    if (score < 2) {
+      let subScore = 0;
+      for (const token of inputTokens) {
+        const used = new Array(token.length).fill(false);
+        for (let len = Math.min(token.length, 6); len >= 2; len--) {
+          for (let i = 0; i <= token.length - len; i++) {
+            if (used.slice(i, i + len).some((v) => v)) continue;
+            const sub = token.substring(i, i + len);
+            // 純粋な数字のみのサブストリングは誤マッチの原因になるため除外
+            if (/^\d+$/.test(sub)) continue;
+            if (normKeywords.includes(sub)) {
+              subScore += /\d/.test(sub) ? 2 : 1;
+              for (let j = i; j < i + len; j++) used[j] = true;
+            }
+          }
+        }
+      }
+      if (subScore > score) score = subScore;
+    }
+
     if (score > bestScore) {
       bestScore = score;
       bestCode = p.code;
