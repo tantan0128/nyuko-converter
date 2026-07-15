@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useAppAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 
@@ -46,6 +46,11 @@ interface ProcessResult {
   logs: string[];
 }
 
+interface SyncStatus {
+  count: number;
+  syncedAt: string | null;
+}
+
 export default function Main() {
   const { logout } = useAppAuth();
   const [mode, setMode] = useState<ProcessMode>("jan_jpg");
@@ -54,9 +59,44 @@ export default function Main() {
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<ProcessResult | null>(null);
   const [showLogs, setShowLogs] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentMode = MODES.find((m) => m.id === mode)!;
+
+  // 同期状況を取得
+  const fetchSyncStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/sync-status");
+      if (res.ok) {
+        const data: SyncStatus = await res.json();
+        setSyncStatus(data);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSyncStatus();
+  }, [fetchSyncStatus]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/sync-products", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "同期に失敗しました");
+      toast.success(data.message || `${data.count}件の商品マスターを同期しました`);
+      await fetchSyncStatus();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "同期に失敗しました";
+      toast.error(msg);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -135,6 +175,12 @@ export default function Main() {
     URL.revokeObjectURL(url);
   };
 
+  const formatSyncDate = (iso: string | null) => {
+    if (!iso) return "未同期";
+    const d = new Date(iso);
+    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif" }}>
       {/* Header */}
@@ -156,6 +202,43 @@ export default function Main() {
       </header>
 
       <div className="container py-8">
+        {/* 商品マスター同期バー */}
+        <div className="mb-6 border border-black p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold tracking-[0.12em] uppercase text-gray-500 mb-1">商品マスター（スプレッドシート同期）</p>
+            <div className="flex items-center gap-4 text-xs text-gray-500">
+              <span>
+                登録件数：
+                <span className="font-black text-black ml-1">
+                  {syncStatus ? syncStatus.count.toLocaleString() : "—"}
+                </span>
+                件
+              </span>
+              <span className="text-black/20">|</span>
+              <span>
+                最終同期：
+                <span className="font-mono ml-1">
+                  {syncStatus ? formatSyncDate(syncStatus.syncedAt) : "—"}
+                </span>
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex-shrink-0 bg-black text-white px-5 py-2 text-xs font-black tracking-[0.1em] uppercase hover:bg-[oklch(0.48_0.22_27)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {syncing ? (
+              <span className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent animate-spin rounded-full" />
+                同期中...
+              </span>
+            ) : (
+              "スプレッドシートから同期"
+            )}
+          </button>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
           {/* Left column: Mode + Upload */}
           <div className="lg:col-span-4 border-r border-black pr-8">
@@ -241,7 +324,7 @@ export default function Main() {
             >
               {processing ? (
                 <span className="flex items-center justify-center gap-2">
-                  <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent animate-spin" style={{ borderRadius: "50%" }} />
+                  <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent animate-spin rounded-full" />
                   処理中...
                 </span>
               ) : (
@@ -263,19 +346,24 @@ export default function Main() {
                 <p className="text-xs font-bold tracking-widest uppercase text-gray-300">
                   ファイルを選択して処理を実行してください
                 </p>
+                {syncStatus && syncStatus.count === 0 && (
+                  <p className="text-xs text-[oklch(0.48_0.22_27)] mt-4 font-bold">
+                    ⚠ 商品マスターが未同期です。先に「スプレッドシートから同期」を実行してください。
+                  </p>
+                )}
               </div>
             )}
 
             {processing && (
               <div className="flex flex-col items-center justify-center py-24">
-                <div className="w-8 h-8 border-2 border-black border-t-[oklch(0.48_0.22_27)] animate-spin mb-4" style={{ borderRadius: "50%" }} />
+                <div className="w-8 h-8 border-2 border-black border-t-[oklch(0.48_0.22_27)] animate-spin mb-4 rounded-full" />
                 <p className="text-xs font-bold tracking-widest uppercase text-gray-400">処理中...</p>
               </div>
             )}
 
             {result && (
               <div className="space-y-6">
-                {/* Summary */}
+                {/* Stats */}
                 <div className="grid grid-cols-3 gap-0 border border-black">
                   <div className="p-4 border-r border-black">
                     <p className="text-xs font-bold tracking-widest uppercase text-gray-400 mb-1">変換成功</p>
@@ -342,18 +430,21 @@ export default function Main() {
                   </div>
                 )}
 
-                {/* Not found */}
+                {/* Not found — フェーズ2でキーワード登録ボタンを追加予定 */}
                 {result.notFound.length > 0 && (
                   <div>
                     <p className="text-xs font-bold tracking-[0.15em] uppercase text-[oklch(0.48_0.22_27)] mb-2">
                       未登録商品 ({result.notFound.length}件)
                     </p>
                     <div className="h-px bg-[oklch(0.48_0.22_27)] mb-3" />
+                    <p className="text-xs text-gray-400 mb-3">
+                      ※ スプレッドシートのC列に検索キーワードを追加することで次回から自動照合されます
+                    </p>
                     <div className="space-y-1">
                       {result.notFound.map((item, i) => (
                         <div key={i} className="flex items-start gap-2 py-1.5 border-b border-black/10">
                           <span className="w-4 h-4 bg-[oklch(0.48_0.22_27)] flex-shrink-0 mt-0.5" />
-                          <span className="text-xs text-gray-700">{item}</span>
+                          <span className="text-xs text-gray-700 flex-1">{item}</span>
                         </div>
                       ))}
                     </div>

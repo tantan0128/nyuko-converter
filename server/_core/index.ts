@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import processRouter from "../processRouter";
+import syncRouter from "../syncRouter";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -39,6 +40,8 @@ async function startServer() {
   registerOAuthRoutes(app);
   // Custom process router for OCR/AI processing
   app.use("/api", processRouter);
+  // Sync router for product master sync
+  app.use("/api", syncRouter);
   // tRPC API
   app.use(
     "/api/trpc",

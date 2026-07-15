@@ -26,3 +26,15 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 // TODO: Add your tables here
+
+/** 商品マスターテーブル（スプレッドシートから同期） */
+export const products = mysqlTable("products", {
+  id: int("id").autoincrement().primaryKey(),
+  jan: varchar("jan", { length: 20 }).default("").notNull(),
+  code: varchar("code", { length: 64 }).notNull(),
+  nameKeywords: text("nameKeywords").default("").notNull(),
+  syncedAt: timestamp("syncedAt").defaultNow().notNull(),
+});
+
+export type Product = typeof products.$inferSelect;
+export type InsertProduct = typeof products.$inferInsert;

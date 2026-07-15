@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `products` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `jan` varchar(20) NOT NULL DEFAULT '',\n  `code` varchar(64) NOT NULL,\n  `nameKeywords` text NOT NULL,\n  `syncedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  CONSTRAINT `products_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3uiGC5iedwWJY92.root --database KKQfciNLJymUmWMwuU5qsr --execute CREATE TABLE `products` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `jan` varchar(20) NOT NULL DEFAULT '',\n  `code` varchar(64) NOT NULL,\n  `nameKeywords` text NOT NULL,\n  `syncedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  CONSTRAINT `products_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1864
+}

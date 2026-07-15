@@ -44,12 +44,35 @@
 - [x] Expressルーター登録（/api/auth/login, /api/process）
 
 ## 環境変数・外部連携
-- [ ] GOOGLE_SERVICE_ACCOUNT_JSON（Document AI + Sheets認証）→ ユーザー設定待ち
-- [ ] DOCUMENT_AI_PROCESSOR_ID（Document AIプロセッサID）→ ユーザー設定待ち
-- [ ] SPREADSHEET_ID（全商品取り扱いリスト）→ ユーザー設定待ち
+- [x] GOOGLE_SERVICE_ACCOUNT_JSON（Document AI + Sheets認証）→ 設定済み
+- [x] DOCUMENT_AI_PROCESSOR_ID（Document AIプロセッサID）→ 設定済み
+- [x] SPREADSHEET_ID（全商品取り扱いリスト）→ 設定済み
 - [x] APP_PASSWORD（ログインパスワード）→ デフォルト: nyuko2024
 
 ## テスト
 - [ ] 認証テスト（vitest）
 - [ ] CSV生成テスト（vitest）
 - [ ] あいまいマッチングテスト（vitest）
+
+## ハイブリッド商品マスター機能
+- [ ] DBスキーマ追加（productsテーブル: jan, code, nameKeywords, syncedAt）
+- [ ] マイグレーションSQL実行
+- [ ] sheets.tsをDB優先・スプレッドシートフォールバックに変更
+- [ ] 同期APIエンドポイント（POST /api/sync-products）
+- [ ] 同期状況確認APIエンドポイント（GET /api/sync-status）
+- [ ] フロントエンド管理画面に「商品マスター同期」ボタン追加
+- [ ] 同期件数・最終同期日時の表示
+
+## フェーズ1: JANコード照合アプリの完成
+- [x] productsテーブルDBスキーマ追加・マイグレーション実行
+- [x] sheets.tsをDB優先・スプレッドシートフォールバックに変更
+- [x] syncRouter.ts（同期API）作成・登録
+- [x] 環境変数設定（GOOGLE_SERVICE_ACCOUNT_JSON, DOCUMENT_AI_PROCESSOR_ID, SPREADSHEET_ID）
+- [ ] Main.tsxにDB同期ボタン（件数・最終同期日時表示）追加
+- [ ] 動作確認（JANコード照合で変換できることを確認）
+
+## フェーズ2: JANなし商品の学習機能
+- [ ] 未登録商品一覧に「キーワード登録」ボタンを追加
+- [ ] キーワード登録モーダル（商品名→C列キーワード候補を提案）
+- [ ] スプレッドシートC列への書き込みAPI（PATCH /api/update-keyword）
+- [ ] 登録後にDB再同期して即座に照合に反映
