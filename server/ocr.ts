@@ -68,7 +68,7 @@ const GEMINI_SYSTEM_PROMPT = `あなたは日本の納品書・売上伝票の�
 - JANコード：13桁の数字（バーコード番号）
 - 商品名：JANコードの隣にある商品の名称
 - 数量：出荷数・納品数・数量（欠品・返品は除外）
-- 日付：伝票の日付（YYYY/MM/DD形式）
+- 日付：伝票の日付（YYYY/MM/DD形式）。現在は2026年です。年が不明な場合は2026年としてください。
 - 数量0の行は除外する
 - ページ端の記号（▶、→、►など）は無視して全行読み取る
 - 複数の伝票が含まれる場合は全て読み取る
@@ -139,8 +139,19 @@ export async function extractWithGemini(
     if (!content) throw new Error("Geminiからレスポンスがありません");
 
     const parsed = typeof content === "string" ? JSON.parse(content) : content;
+    // 年が正しくない場合（2020未満または2030超）は現在年に補正
+    let date = parsed.date as string | undefined;
+    if (date) {
+      const m = date.match(/^(\d{4})([\/\-]\d{2}[\/\-]\d{2})$/);
+      if (m) {
+        const y = parseInt(m[1], 10);
+        if (y < 2020 || y > 2030) {
+          date = `${new Date().getFullYear()}${m[2]}`;
+        }
+      }
+    }
     return {
-      date: parsed.date,
+      date,
       items: (parsed.items || []).filter((item: ExtractedItem) => item.quantity > 0),
     };
   } catch (e: unknown) {
