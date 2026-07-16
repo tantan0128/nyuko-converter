@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Login from "./pages/Login";
 import Main from "./pages/Main";
+import GmailJobs from "./pages/GmailJobs";
 import { AuthProvider, useAppAuth } from "./contexts/AuthContext";
 
 function Router() {
@@ -18,6 +19,7 @@ function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Main} />
+      <Route path={"/gmail-jobs"} component={GmailJobs} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

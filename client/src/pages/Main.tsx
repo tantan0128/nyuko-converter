@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useAppAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
+import { Link } from "wouter";
 
 type ProcessMode =
   | "jan_jpg"
@@ -39,11 +40,25 @@ interface ResultRow {
   note: string;
 }
 
+interface NotFoundItem {
+  label: string;       // 表示用ラベル
+  productName: string; // 商品名（照合用）
+  quantity: number;
+}
+
 interface ProcessResult {
   rows: ResultRow[];
-  notFound: string[];
+  notFound: NotFoundItem[];
   errors: string[];
   logs: string[];
+}
+
+interface KeywordModalState {
+  open: boolean;
+  productName: string;
+  keyword: string;
+  code: string;
+  registering: boolean;
 }
 
 interface SyncStatus {
@@ -61,6 +76,10 @@ export default function Main() {
   const [showLogs, setShowLogs] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [modal, setModal] = useState<KeywordModalState>({
+    open: false, productName: "", keyword: "", code: "", registering: false
+  });
+  const [productCodes, setProductCodes] = useState<{code: string; name: string}[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentMode = MODES.find((m) => m.id === mode)!;
@@ -154,6 +173,48 @@ export default function Main() {
     }
   };
 
+  // 商品コード一覧を取得（モーダル用）
+  const fetchProductCodes = useCallback(async () => {
+    try {
+      const res = await fetch("/api/product-codes");
+      if (res.ok) {
+        const data = await res.json();
+        setProductCodes(data);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { fetchProductCodes(); }, [fetchProductCodes]);
+
+  const openModal = (item: NotFoundItem) => {
+    setModal({ open: true, productName: item.productName, keyword: item.productName, code: "", registering: false });
+  };
+
+  const handleRegisterKeyword = async () => {
+    if (!modal.code || !modal.keyword.trim()) {
+      toast.error("商品コードとキーワードを入力してください");
+      return;
+    }
+    setModal(m => ({ ...m, registering: true }));
+    try {
+      const res = await fetch("/api/register-keyword", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: modal.code, keyword: modal.keyword.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "登録に失敗しました");
+      toast.success(data.message || "キーワードを登録しました");
+      setModal(m => ({ ...m, open: false }));
+      await fetchSyncStatus();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "登録に失敗しました";
+      toast.error(msg);
+    } finally {
+      setModal(m => ({ ...m, registering: false }));
+    }
+  };
+
   const handleDownload = () => {
     if (!result || result.rows.length === 0) return;
 
@@ -191,12 +252,20 @@ export default function Main() {
               <div className="w-6 h-6 bg-[oklch(0.48_0.22_27)]" />
               <span className="text-sm font-black tracking-tight uppercase">入庫変換アプリ</span>
             </div>
-            <button
-              onClick={logout}
-              className="text-xs font-bold tracking-[0.1em] uppercase text-gray-400 hover:text-black transition-colors"
-            >
-              ログアウト
-            </button>
+            <div className="flex items-center gap-4">
+              <Link
+                href="/gmail-jobs"
+                className="text-xs font-bold tracking-[0.1em] uppercase text-gray-400 hover:text-black transition-colors flex items-center gap-1"
+              >
+                <span>📧</span> Gmail自動取り込み
+              </Link>
+              <button
+                onClick={logout}
+                className="text-xs font-bold tracking-[0.1em] uppercase text-gray-400 hover:text-black transition-colors"
+              >
+                ログアウト
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -430,7 +499,7 @@ export default function Main() {
                   </div>
                 )}
 
-                {/* Not found — フェーズ2でキーワード登録ボタンを追加予定 */}
+                {/* Not found — キーワード登録ボタン付き */}
                 {result.notFound.length > 0 && (
                   <div>
                     <p className="text-xs font-bold tracking-[0.15em] uppercase text-[oklch(0.48_0.22_27)] mb-2">
@@ -438,15 +507,79 @@ export default function Main() {
                     </p>
                     <div className="h-px bg-[oklch(0.48_0.22_27)] mb-3" />
                     <p className="text-xs text-gray-400 mb-3">
-                      ※ スプレッドシートのC列に検索キーワードを追加することで次回から自動照合されます
+                      「登録」ボタンで納品書キーワードを登録すると、次回から自動照合されます
                     </p>
                     <div className="space-y-1">
                       {result.notFound.map((item, i) => (
-                        <div key={i} className="flex items-start gap-2 py-1.5 border-b border-black/10">
-                          <span className="w-4 h-4 bg-[oklch(0.48_0.22_27)] flex-shrink-0 mt-0.5" />
-                          <span className="text-xs text-gray-700 flex-1">{item}</span>
+                        <div key={i} className="flex items-center gap-2 py-1.5 border-b border-black/10">
+                          <span className="w-4 h-4 bg-[oklch(0.48_0.22_27)] flex-shrink-0" />
+                          <span className="text-xs text-gray-700 flex-1">{item.label} <span className="text-gray-400">(数量:{item.quantity})</span></span>
+                          <button
+                            onClick={() => openModal(item)}
+                            className="text-xs border border-black px-2 py-0.5 hover:bg-black hover:text-white transition-colors flex-shrink-0 font-bold"
+                          >
+                            登録
+                          </button>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* キーワード登録モーダル */}
+                {modal.open && (
+                  <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white border-2 border-black w-full max-w-md p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-black tracking-[0.1em] uppercase">キーワード登録</p>
+                        <button onClick={() => setModal(m => ({ ...m, open: false }))} className="text-gray-400 hover:text-black text-lg">×</button>
+                      </div>
+                      <div className="h-px bg-black" />
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs text-gray-400 mb-1">納品書の表記</p>
+                          <p className="text-sm font-mono bg-gray-50 border border-black/20 px-3 py-2">{modal.productName}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold tracking-wider uppercase text-gray-600 block mb-1">登録キーワード</label>
+                          <input
+                            type="text"
+                            value={modal.keyword}
+                            onChange={e => setModal(m => ({ ...m, keyword: e.target.value }))}
+                            placeholder="カンマ区切りで複数登録可"
+                            className="w-full border border-black px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-black"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">スプレッドシートD列に追記されます</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold tracking-wider uppercase text-gray-600 block mb-1">納品先自社コード <span className="text-red-500">*</span></label>
+                          <select
+                            value={modal.code}
+                            onChange={e => setModal(m => ({ ...m, code: e.target.value }))}
+                            className="w-full border border-black px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-black bg-white"
+                          >
+                            <option value="">―選択してください―</option>
+                            {productCodes.map(p => (
+                              <option key={p.code} value={p.code}>{p.code} — {p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <button
+                          onClick={() => setModal(m => ({ ...m, open: false }))}
+                          className="flex-1 border border-black py-2 text-sm font-bold hover:bg-gray-50 transition-colors"
+                        >
+                          キャンセル
+                        </button>
+                        <button
+                          onClick={handleRegisterKeyword}
+                          disabled={modal.registering || !modal.code}
+                          className="flex-1 bg-black text-white py-2 text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-50"
+                        >
+                          {modal.registering ? "登録中...": "登録する"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

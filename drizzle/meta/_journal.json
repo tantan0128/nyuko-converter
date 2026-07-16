@@ -15,6 +15,20 @@
       "when": 1784079820431,
       "tag": "0001_lean_iron_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1784124485162,
+      "tag": "0002_fluffy_wallop",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1784125657690,
+      "tag": "0003_concerned_rhino",
+      "breakpoints": true
     }
   ]
 }

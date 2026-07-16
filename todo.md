@@ -71,8 +71,24 @@
 - [x] Main.tsxにDB同期ボタン（件数・最終同期日時表示）追加
 - [x] 動作確認（JANコード照合で変換できることを確認）
 
+## 数量合算対応
+- [x] 同一自社コードの行を数量合算してCSVに1行で出力（全モード共通）
+
 ## フェーズ2: JANなし商品の学習機能
-- [ ] 未登録商品一覧に「キーワード登録」ボタンを追加
-- [ ] キーワード登録モーダル（商品名→C列キーワード候補を提案）
-- [ ] スプレッドシートC列への書き込みAPI（PATCH /api/update-keyword）
-- [ ] 登録後にDB再同期して即座に照合に反映
+- [x] スプレッドシートD列「納品書キーワード」を新設（sheets.ts: fetchFromSpreadsheetでA:D読み込み実装済み）
+- [x] 照合ロジック強化: D列キーワードでの照合を追加（matchByNameでC列+D列結合照合実装済み）
+- [x] 照合ロジック強化: 仕入先プレフィックス（sa-, id-等）を使った品番照合（matchBySupplierCode実装済み）
+- [x] キーワード登録API（/api/register-keyword: appendDeliveryKeyword→DB再同期実装済み）
+- [x] 未登録商品に「登録」ボタンを表示するUI（Main.tsx実装済み）
+- [x] キーワード登録モーダル（候補コード選択・キーワード入力・確認）（Main.tsx実装済み）
+- [x] 未登録商品が出た場合、商品名と候補コードを表示してキーワード登録できるUI（Main.tsx実装済み）
+- [x] 登録済みキーワードをDBに保存してスプレッドシートにも反映（syncProductsToDB実装済み）
+
+## フェーズ3: Gmail連携による複合機PDF自動処理
+- [x] Gmail OAuth設定（phezzan.scan@gmail.com 連携完了）
+- [x] Gmailを定期監視（5分ごとHeartbeat登録済み: QGiaVyvEDdSJ8xtqyE3p67）
+- [x] 添付PDFをJAN読み取りPDFモードで自動処理
+- [x] 処理結果CSVをアプリ内に保存（ダウンロード待ち一覧として表示）
+- [x] 処理済みメールにラベルを付けて重複処理を防止（nyuko-processedラベル）
+- [x] 処理結果一覧ページ（生成済みCSVのダウンロード）
+- [x] Gmailアカウント設定手順をユーザーに案内

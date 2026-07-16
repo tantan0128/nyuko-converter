@@ -5,7 +5,54 @@ import { products } from "../drizzle/schema";
 export interface ProductRecord {
   jan: string;
   code: string;
-  nameKeywords: string; // C列: 検索キーワード
+  nameKeywords: string; // C列: 商品名・検索キーワード
+  deliveryKeywords: string; // D列: 納品書キーワード（仕入先品番・別名など）
+}
+
+// 仕入元プレフィックスと仕入先名のマッピング
+export const SUPPLIER_PREFIX_MAP: Record<string, string[]> = {
+  ok: ["オクムラ", "奥村", "okumura"],
+  sa: ["三陽", "sanyo", "さんよう"],
+  th: ["クラスアップ", "classup", "class up", "th"],
+  yy: ["ワイヨット", "wayot", "wy"],
+  id: ["イシダ", "石田", "ishida"],
+  sd: ["東洋竹工", "toyo", "toyochikko"],
+  pz: ["前原", "maehara"],
+  nk: ["中川", "nakagawa"],
+  du: ["大丸", "daimaru"],
+  kf: ["カフェ", "cafe"],
+  mx: ["マックス", "max"],
+  kd: ["カドー", "kado"],
+  mc: ["マクロ", "macro"],
+  fj: ["藤田", "fujita"],
+  fo: ["フォー", "fo"],
+  ca: ["カ", "ca"],
+  sh: ["昭和", "showa"],
+  oi: ["オイ", "oi"],
+  ac: ["アク", "ac"],
+  ap: ["アップ", "ap"],
+  mz: ["マズ", "mz"],
+  kr: ["クル", "kr"],
+  fk: ["フク", "fk"],
+  za: ["ザ", "za"],
+  yi: ["ヨイ", "yi"],
+  kh: ["カハ", "kh"],
+  po: ["ポ", "po"],
+  ry: ["リュ", "ry"],
+};
+
+/** 仕入先名からプレフィックスを推定 */
+export function guessSupplierPrefix(supplierName: string): string | null {
+  if (!supplierName) return null;
+  const normalized = supplierName.toLowerCase().replace(/\s+/g, "");
+  for (const [prefix, names] of Object.entries(SUPPLIER_PREFIX_MAP)) {
+    for (const name of names) {
+      if (normalized.includes(name.toLowerCase().replace(/\s+/g, ""))) {
+        return prefix;
+      }
+    }
+  }
+  return null;
 }
 
 // メモリキャッシュ（DB読み込み結果）
@@ -13,43 +60,110 @@ let cachedProducts: ProductRecord[] | null = null;
 let cacheTime = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5分キャッシュ
 
-function getAuthClient() {
+function getAuthClient(readonly = true) {
   const credJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!credJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON が設定されていません");
   const credentials = JSON.parse(credJson);
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  });
+  const scopes = readonly
+    ? ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    : ["https://www.googleapis.com/auth/spreadsheets"];
+  return new google.auth.GoogleAuth({ credentials, scopes });
 }
 
-/** スプレッドシートから商品データを取得（同期用） */
+/** スプレッドシートから商品データを取得（同期用）- A:D列を読み込む */
 export async function fetchFromSpreadsheet(): Promise<ProductRecord[]> {
   const spreadsheetId = process.env.SPREADSHEET_ID;
   if (!spreadsheetId) throw new Error("SPREADSHEET_ID が設定されていません");
 
-  const auth = getAuthClient();
+  const auth = getAuthClient(true);
   const sheets = google.sheets({ version: "v4", auth });
 
-  const range = process.env.SPREADSHEET_RANGE || "全商品取り扱いリスト!A:C";
+  // D列まで読み込む
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range,
+    range: "全商品取り扱いリスト!A:D",
   });
 
   const rows = response.data.values || [];
   const result: ProductRecord[] = [];
 
   for (const row of rows) {
-    const jan = String(row[0] || "").trim().replace(/^'/, ""); // 先頭の ' を除去
+    const jan = String(row[0] || "").trim().replace(/^'/, "");
     const code = String(row[1] || "").trim();
     const nameKeywords = String(row[2] || "").trim();
+    const deliveryKeywords = String(row[3] || "").trim();
     if (code) {
-      result.push({ jan, code, nameKeywords });
+      result.push({ jan, code, nameKeywords, deliveryKeywords });
     }
   }
 
   return result;
+}
+
+/** スプレッドシートのD列にキーワードを追記する */
+export async function appendDeliveryKeyword(
+  code: string,
+  keyword: string
+): Promise<{ ok: boolean; error?: string }> {
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  if (!spreadsheetId) return { ok: false, error: "SPREADSHEET_ID が設定されていません" };
+
+  try {
+    const auth = getAuthClient(false);
+    const sheets = google.sheets({ version: "v4", auth });
+
+    // 全行を取得してcodeが一致する行番号を探す
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "全商品取り扱いリスト!A:D",
+    });
+
+    const rows = response.data.values || [];
+    let rowIndex = -1;
+    let currentD = "";
+
+    for (let i = 0; i < rows.length; i++) {
+      const rowCode = String(rows[i][1] || "").trim();
+      if (rowCode === code) {
+        rowIndex = i + 1; // 1-indexed
+        currentD = String(rows[i][3] || "").trim();
+        break;
+      }
+    }
+
+    if (rowIndex < 0) {
+      return { ok: false, error: `コード「${code}」が見つかりません` };
+    }
+
+    // 既存キーワードに追記（重複除去）
+    const existing = currentD
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    const newKeywords = keyword
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    const seen = new Set<string>();
+    const merged = [...existing, ...newKeywords].filter((k) => {
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    }).join(",");
+
+    // D列を更新
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `全商品取り扱いリスト!D${rowIndex}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[merged]] },
+    });
+
+    return { ok: true };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
 }
 
 /** DBに商品マスターを同期保存 */
@@ -57,12 +171,10 @@ export async function syncProductsToDB(records: ProductRecord[]): Promise<number
   const db = await getDb();
   if (!db) throw new Error("データベースに接続できません");
 
-  // 既存データを全削除して再挿入
   await db.delete(products);
 
   if (records.length === 0) return 0;
 
-  // バッチ挿入（500件ずつ）
   const batchSize = 500;
   let inserted = 0;
   for (let i = 0; i < records.length; i += batchSize) {
@@ -70,12 +182,12 @@ export async function syncProductsToDB(records: ProductRecord[]): Promise<number
       jan: r.jan,
       code: r.code,
       nameKeywords: r.nameKeywords,
+      deliveryKeywords: r.deliveryKeywords,
     }));
     await db.insert(products).values(batch);
     inserted += batch.length;
   }
 
-  // キャッシュクリア
   cachedProducts = null;
   cacheTime = 0;
 
@@ -94,6 +206,7 @@ async function loadFromDB(): Promise<ProductRecord[] | null> {
       jan: r.jan,
       code: r.code,
       nameKeywords: r.nameKeywords,
+      deliveryKeywords: r.deliveryKeywords ?? "",
     }));
   } catch {
     return null;
@@ -122,7 +235,6 @@ export async function loadProductMaster(): Promise<ProductRecord[]> {
     return cachedProducts;
   }
 
-  // DB優先
   const dbProducts = await loadFromDB();
   if (dbProducts && dbProducts.length > 0) {
     cachedProducts = dbProducts;
@@ -130,11 +242,8 @@ export async function loadProductMaster(): Promise<ProductRecord[]> {
     return dbProducts;
   }
 
-  // DBが空ならスプレッドシートから直接読み込み（フォールバック）
   const spreadsheetId = process.env.SPREADSHEET_ID;
-  if (!spreadsheetId) {
-    return [];
-  }
+  if (!spreadsheetId) return [];
 
   try {
     const sheetProducts = await fetchFromSpreadsheet();
@@ -160,8 +269,37 @@ export function matchByJan(jan: string, products: ProductRecord[]): string | nul
   return found?.code || null;
 }
 
-/** 商品名あいまいマッチング */
-export function matchByName(productName: string, products: ProductRecord[]): string | null {
+/** 仕入先コードのハイフン後部分で照合（品番照合） */
+export function matchBySupplierCode(
+  supplierCode: string,
+  products: ProductRecord[],
+  supplierPrefix?: string
+): string | null {
+  if (!supplierCode) return null;
+  const norm = supplierCode.toLowerCase().replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) =>
+    String.fromCharCode(c.charCodeAt(0) - 0xfee0)
+  ).trim();
+
+  // 絞り込み対象
+  const candidates = supplierPrefix
+    ? products.filter((p) => p.code.startsWith(supplierPrefix + "-"))
+    : products;
+
+  for (const p of candidates) {
+    // B列コードのハイフン後部分と照合
+    const afterHyphen = p.code.split("-").slice(1).join("-").toLowerCase();
+    if (afterHyphen && norm.includes(afterHyphen)) return p.code;
+    if (afterHyphen && afterHyphen.includes(norm)) return p.code;
+  }
+  return null;
+}
+
+/** 商品名あいまいマッチング（仕入元絞り込み対応） */
+export function matchByName(
+  productName: string,
+  products: ProductRecord[],
+  supplierPrefix?: string
+): string | null {
   if (!productName) return null;
 
   const normalize = (s: string) =>
@@ -174,12 +312,20 @@ export function matchByName(productName: string, products: ProductRecord[]): str
   const normInput = normalize(productName);
   const inputNoSpace = normInput.replace(/\s+/g, "");
 
+  // 仕入元プレフィックスで絞り込み
+  const candidates = supplierPrefix
+    ? products.filter((p) => p.code.startsWith(supplierPrefix + "-"))
+    : products;
+
   let bestCode: string | null = null;
   let bestScore = 0;
 
-  for (const p of products) {
-    if (!p.nameKeywords) continue;
-    const normKeywords = normalize(p.nameKeywords);
+  for (const p of candidates) {
+    // C列（nameKeywords）とD列（deliveryKeywords）を結合して照合
+    const combinedKeywords = [p.nameKeywords, p.deliveryKeywords].filter(Boolean).join(" ");
+    if (!combinedKeywords) continue;
+
+    const normKeywords = normalize(combinedKeywords);
     const keywordsNoSpace = normKeywords.replace(/\s+/g, "");
 
     // パス1: スペース除去完全一致
@@ -207,8 +353,7 @@ export function matchByName(productName: string, products: ProductRecord[]): str
           for (let i = 0; i <= token.length - len; i++) {
             if (used.slice(i, i + len).some((v) => v)) continue;
             const sub = token.substring(i, i + len);
-            // 純粋な数字のみのサブストリングは誤マッチの原因になるため除外
-            if (/^\d+$/.test(sub)) continue;
+            if (/^\d+$/.test(sub)) continue; // 純粋な数字のみは除外
             if (normKeywords.includes(sub)) {
               subScore += /\d/.test(sub) ? 2 : 1;
               for (let j = i; j < i + len; j++) used[j] = true;

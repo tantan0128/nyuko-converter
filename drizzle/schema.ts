@@ -33,8 +33,26 @@ export const products = mysqlTable("products", {
   jan: varchar("jan", { length: 20 }).default("").notNull(),
   code: varchar("code", { length: 64 }).notNull(),
   nameKeywords: text("nameKeywords").default("").notNull(),
+  deliveryKeywords: text("deliveryKeywords").default("").notNull(),
   syncedAt: timestamp("syncedAt").defaultNow().notNull(),
 });
 
 export type Product = typeof products.$inferSelect;
 export type InsertProduct = typeof products.$inferInsert;
+
+/** Gmail自動処理ジョブテーブル */
+export const gmailJobs = mysqlTable("gmail_jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  messageId: varchar("messageId", { length: 255 }).notNull(),
+  subject: varchar("subject", { length: 500 }).default("").notNull(),
+  fromEmail: varchar("fromEmail", { length: 255 }).default("").notNull(),
+  filename: varchar("filename", { length: 255 }).default("").notNull(),
+  processedAt: timestamp("processedAt").defaultNow().notNull(),
+  rowCount: int("rowCount").default(0).notNull(),
+  notFoundCount: int("notFoundCount").default(0).notNull(),
+  csvContent: text("csvContent"),
+  status: varchar("status", { length: 32 }).default("done").notNull(),
+});
+
+export type GmailJob = typeof gmailJobs.$inferSelect;
+export type InsertGmailJob = typeof gmailJobs.$inferInsert;

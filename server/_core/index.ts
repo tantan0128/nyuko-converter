@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import processRouter from "../processRouter";
 import syncRouter from "../syncRouter";
+import gmailSchedulerRouter from "../gmailScheduler";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -42,6 +43,8 @@ async function startServer() {
   app.use("/api", processRouter);
   // Sync router for product master sync
   app.use("/api", syncRouter);
+  // Gmail scheduler router
+  app.use("/api", gmailSchedulerRouter);
   // tRPC API
   app.use(
     "/api/trpc",

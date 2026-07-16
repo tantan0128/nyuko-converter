@@ -51,12 +51,14 @@ export async function ocrWithDocumentAI(
 export interface ExtractedItem {
   jan?: string;
   productName?: string;
+  supplierCode?: string; // 仕入先品番コード
   quantity: number;
   date?: string;
 }
 
 export interface ExtractedData {
   date?: string;
+  supplier?: string; // 仕入先会社名
   items: ExtractedItem[];
   error?: string;
 }
@@ -114,6 +116,7 @@ export async function extractWithGemini(
             type: "object",
             properties: {
               date: { type: "string", description: "伝票日付 YYYY/MM/DD" },
+              supplier: { type: "string", description: "仕入先会社名（納品書の発行元会社名、なければ空文字）" },
               items: {
                 type: "array",
                 items: {
@@ -121,14 +124,15 @@ export async function extractWithGemini(
                   properties: {
                     jan: { type: "string", description: "13桁JANコード（なければ空文字）" },
                     productName: { type: "string", description: "商品名" },
+                    supplierCode: { type: "string", description: "仕入先品番コード（メーカー品番・商品コード、なければ空文字）" },
                     quantity: { type: "number", description: "数量" },
                   },
-                  required: ["jan", "productName", "quantity"],
+                  required: ["jan", "productName", "supplierCode", "quantity"],
                   additionalProperties: false,
                 },
               },
             },
-            required: ["date", "items"],
+            required: ["date", "supplier", "items"],
             additionalProperties: false,
           },
         },
@@ -152,6 +156,7 @@ export async function extractWithGemini(
     }
     return {
       date,
+      supplier: parsed.supplier as string | undefined,
       items: (parsed.items || []).filter((item: ExtractedItem) => item.quantity > 0),
     };
   } catch (e: unknown) {
