@@ -92,3 +92,23 @@
 - [x] 処理済みメールにラベルを付けて重複処理を防止（nyuko-processedラベル）
 - [x] 処理結果一覧ページ（生成済みCSVのダウンロード）
 - [x] Gmailアカウント設定手順をユーザーに案内
+
+## モード整理（一新）
+- [ ] 不要モード削除: 三陽（sanyo）・十二堂（junidou）・コレド（cored）・イシダ（ishida）・前原（maehara）をUIとバックエンドから削除
+- [ ] 残すモード: JAN読み取りJPG・JAN読み取りPDF・商品名読み取りJPG の3モードに整理
+- [ ] processRouter.tsからprocessCSV・processExcel関数と対応するモード分岐を削除
+- [ ] ocr.tsのbuildPromptからmaehara/ishida/cored/junidou/sanyoのプロンプトを削除
+- [ ] Main.tsxのMODES配列を3モードに整理
+
+## モード整理・照合ロジック改善（2026-07-16）
+- [x] 不要モード削除: 三陽・十二堂・コレド・イシダ・前原・商品名読み取りJPGをUIとバックエンドから削除
+- [x] 残すモード: JAN読み取りJPG・JAN読み取りPDF・商品名/商品コード読み取りPDF の3モードに整理
+- [x] 照合順序修正: 品番照合（ステップ2）→ 商品名/D列照合（ステップ3・4）に変更
+- [x] VENDOR_CODE_TO_NAME対応表をベンダーリスト旧シートから正確に更新
+- [x] SUPPLIER_PREFIX_MAPのキーワードを正確な仕入先名に修正
+- [x] スプレッドシートD1に「納品書キーワード」見出しを追加
+- [x] スプレッドシートD列に全商品のキーワードを一括生成・書き込み（品番・ブランド名・型番）
+- [x] GmailJob型にsupplierフィールドを追加
+- [x] storageProxy.tsのTypeScriptエラー修正
+- [x] CSVファイル名を「助ネコ在庫up{仕入先名}{MMDD}.csv」形式に統一（GmailJobs.tsx）
+- [x] 全テスト30件パス確認

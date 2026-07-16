@@ -173,12 +173,7 @@ function buildPrompt(mode: string, ocrText: string): string {
   const modeInstructions: Record<string, string> = {
     jan_jpg: `${baseInstruction}\n\nJANコード（13桁）と数量を全行抽出してください。数量0の行は除外。`,
     jan_pdf: `${baseInstruction}\n\nJANコード（13桁）と数量を全行抽出してください。数量0の行は除外。`,
-    productname_jpg: `${baseInstruction}\n\n商品名と数量を全行抽出してください。JANコードがない場合は空文字にしてください。`,
-    maehara: `${baseInstruction}\n\n前原の納品書フォーマット。JANコードと出荷数量を抽出してください。`,
-    ishida: `${baseInstruction}\n\nイシダの納品書フォーマット。JANコードと出荷数量を抽出してください。`,
-    cored: `${baseInstruction}\n\nコレドの納品書フォーマット。JANコードと出荷数量を抽出してください。`,
-    junidou: `${baseInstruction}\n\n十二堂のCSVデータ。商品コードと数量を抽出してください。`,
-    sanyo: `${baseInstruction}\n\n三陽のExcelデータ。JANコードと数量を抽出してください。`,
+    name_pdf: `${baseInstruction}\n\n商品名・商品コード（仕入先品番）と数量を全行抽出してください。JANコードがあれば併せて抽出してください。`,
   };
 
   return modeInstructions[mode] || baseInstruction;

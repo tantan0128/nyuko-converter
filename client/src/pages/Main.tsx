@@ -6,12 +6,7 @@ import { Link } from "wouter";
 type ProcessMode =
   | "jan_jpg"
   | "jan_pdf"
-  | "productname_jpg"
-  | "maehara"
-  | "ishida"
-  | "cored"
-  | "junidou"
-  | "sanyo";
+  | "name_pdf";
 
 interface ProcessModeConfig {
   id: ProcessMode;
@@ -23,12 +18,7 @@ interface ProcessModeConfig {
 const MODES: ProcessModeConfig[] = [
   { id: "jan_jpg", label: "JAN読み取りJPG", accept: "image/jpeg,image/jpg,image/png,image/webp", description: "JPG画像からJANコードを読み取り" },
   { id: "jan_pdf", label: "JAN読み取りPDF", accept: "application/pdf", description: "PDFからJANコードを読み取り" },
-  { id: "productname_jpg", label: "商品名読み取りJPG", accept: "image/jpeg,image/jpg,image/png,image/webp", description: "JPG画像から商品名を読み取り（C列照合）" },
-  { id: "maehara", label: "前原", accept: "image/jpeg,image/jpg,image/png,image/webp,application/pdf", description: "前原専用フォーマット" },
-  { id: "ishida", label: "イシダ", accept: "image/jpeg,image/jpg,image/png,image/webp,application/pdf", description: "イシダ専用フォーマット" },
-  { id: "cored", label: "コレド", accept: "image/jpeg,image/jpg,image/png,image/webp,application/pdf", description: "コレド専用フォーマット" },
-  { id: "junidou", label: "十二堂（CSV）", accept: ".csv,text/csv", description: "十二堂CSVファイル" },
-  { id: "sanyo", label: "三陽（Excel）", accept: ".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", description: "三陽Excelファイル" },
+  { id: "name_pdf", label: "商品名・商品コード読み取りPDF", accept: "application/pdf,image/jpeg,image/jpg,image/png,image/webp", description: "PDF/画像から商品名・商品コードで照合" },
 ];
 
 interface ResultRow {
@@ -51,6 +41,7 @@ interface ProcessResult {
   notFound: NotFoundItem[];
   errors: string[];
   logs: string[];
+  supplier?: string;
 }
 
 interface KeywordModalState {
@@ -230,8 +221,9 @@ export default function Main() {
     const a = document.createElement("a");
     a.href = url;
     const now = new Date();
-    const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
-    a.download = `入庫変換_${ts}.csv`;
+    const mmdd = `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const supplierPart = result.supplier ? result.supplier : "";
+    a.download = `助ネコ在庫up${supplierPart}${mmdd}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };

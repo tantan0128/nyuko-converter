@@ -17,6 +17,7 @@ interface GmailJob {
   notFoundCount: number;
   csvContent: string | null;
   status: string;
+  supplier?: string | null;
 }
 
 interface GmailStatus {
@@ -90,9 +91,12 @@ export default function GmailJobs() {
     const blob = new Blob([bom + job.csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const date = new Date(job.processedAt).toLocaleDateString("ja-JP").replace(/\//g, "");
+    const d = new Date(job.processedAt);
+    const mmdd = `${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    // subjectや仕入先名からベンダー名を推定（メール件名に含まれることが多い）
+    const supplierPart = job.supplier || "";
     a.href = url;
-    a.download = `nyuko_${date}_${job.filename.replace(".pdf", "")}.csv`;
+    a.download = `助ネコ在庫up${supplierPart}${mmdd}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
