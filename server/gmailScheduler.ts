@@ -4,7 +4,7 @@
  */
 import express from "express";
 import { fetchUnprocessedPdfEmails, markAsProcessed, testGmailConnection } from "./gmail";
-import { loadProductMaster, matchByJan, matchBySupplierCode, matchByName, guessSupplierPrefix } from "./sheets";
+import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword } from "./sheets";
 import { ocrWithDocumentAI, extractWithGemini, ExtractedItem } from "./ocr";
 import { getDb } from "./db";
 import { gmailJobs } from "../drizzle/schema";
@@ -154,10 +154,12 @@ export async function processGmailPdfs(): Promise<{
       for (const item of extracted.items) {
         if (item.quantity <= 0) continue;
         let code: string | null = null;
+        let matchedByJan = false;
 
         // ステップ1: JAN完全一致
         if (item.jan && item.jan.length >= 8) {
           code = matchByJan(item.jan, products);
+          if (code) matchedByJan = true;
         }
 
         // ステップ2: 仕入先品番コードで照合
@@ -177,6 +179,12 @@ export async function processGmailPdfs(): Promise<{
 
         if (code) {
           rows.push({ code, stockType: "通常在庫", quantity: item.quantity, date: dateStr, time: "00:00", note: "" });
+          // JANコード以外で照合成功した場合、D列にキーワードを自動記入
+          if (!matchedByJan && item.productName) {
+            appendDeliveryKeyword(code, item.productName).catch((e) =>
+              console.warn(`[gmail] D列記入スキップ: ${e instanceof Error ? e.message : String(e)}`)
+            );
+          }
         } else {
           const label = item.jan
             ? `JAN:${item.jan}`

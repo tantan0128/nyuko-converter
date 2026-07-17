@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
 import { ocrWithDocumentAI, extractWithGemini } from "./ocr";
-import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix } from "./sheets";
+import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword } from "./sheets";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -117,15 +117,17 @@ async function processImageOrPDF(
 
   const detectedSupplierName = extracted.supplier || undefined;
 
-  for (const item of extracted.items) {
+    for (const item of extracted.items) {
     if (item.quantity <= 0) continue;
 
     let code: string | null = null;
+    let matchedByJan = false;
 
     // ステップ1: JAN完全一致（最優先）
     if (item.jan && item.jan.length >= 8) {
       code = matchByJan(item.jan, products);
       if (code) {
+        matchedByJan = true;
         logs.push(`JAN照合成功: ${item.jan} → ${code}`);
       } else {
         logs.push(`JAN未登録: ${item.jan}`);
@@ -158,6 +160,12 @@ async function processImageOrPDF(
 
     if (code) {
       allRows.push(buildRow(code, item.quantity, dateStr));
+      // JANコード以外で照合成功した場合、D列にキーワードを自動記入
+      if (!matchedByJan && item.productName) {
+        appendDeliveryKeyword(code, item.productName).catch((e) =>
+          logs.push(`D列記入スキップ: ${e instanceof Error ? e.message : String(e)}`)
+        );
+      }
     } else {
       const label = item.jan
         ? `JAN:${item.jan}`

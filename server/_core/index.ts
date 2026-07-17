@@ -11,6 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import processRouter from "../processRouter";
 import syncRouter from "../syncRouter";
 import gmailSchedulerRouter from "../gmailScheduler";
+import { getSyncStatus, fetchFromSpreadsheet, syncProductsToDB } from "../sheets";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -70,6 +71,21 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // 起動時に商品マスターDBが空の場合は自動同期
+  try {
+    const status = await getSyncStatus();
+    if (status.count === 0) {
+      console.log("[startup] 商品マスターDBが空 → スプレッドシートから自動同期開始");
+      const records = await fetchFromSpreadsheet();
+      const count = await syncProductsToDB(records);
+      console.log(`[startup] 商品マスター自動同期完了: ${count}件`);
+    } else {
+      console.log(`[startup] 商品マスターDB: ${status.count}件 (最終同期: ${status.syncedAt?.toISOString()})`);
+    }
+  } catch (e) {
+    console.warn("[startup] 商品マスター自動同期失敗:", e instanceof Error ? e.message : String(e));
+  }
 }
 
 startServer().catch(console.error);
