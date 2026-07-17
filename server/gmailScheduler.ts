@@ -31,7 +31,7 @@ router.get("/gmail-jobs", async (_req, res) => {
   }
 });
 
-/** Gmailデバッグ：メール一覧確認 */
+/** Gmailデバッグ：メール一覧確認（ラベルIDベース） */
 router.get("/gmail-debug", async (_req, res) => {
   try {
     const { google } = await import("googleapis");
@@ -42,22 +42,35 @@ router.get("/gmail-debug", async (_req, res) => {
     oauth2Client.setCredentials({ refresh_token: refreshToken });
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
     const profile = await gmail.users.getProfile({ userId: "me" });
-    const query = "has:attachment filename:pdf -label:nyuko-processed";
-    const listRes = await gmail.users.messages.list({ userId: "me", q: query, maxResults: 10 });
+
+    // ラベル一覧を取得
+    const labelsRes = await gmail.users.labels.list({ userId: "me" });
+    const allLabels = labelsRes.data.labels || [];
+    const nyukoLabel = allLabels.find((l: any) => l.name === "nyuko-processed");
+    const processedLabelId = nyukoLabel?.id || null;
+
+    // has:attachmentで全件取得
+    const listRes = await gmail.users.messages.list({ userId: "me", q: "has:attachment", maxResults: 20 });
     const messages = listRes.data.messages || [];
+
     const details = [];
-    for (const msg of messages.slice(0, 5)) {
+    let unprocessedCount = 0;
+    for (const msg of messages.slice(0, 10)) {
       const m = await gmail.users.messages.get({ userId: "me", id: msg.id!, format: "metadata", metadataHeaders: ["Subject", "From", "Date"] });
       const headers = m.data.payload?.headers || [];
       const subject = headers.find((h: any) => h.name === "Subject")?.value || "";
       const from = headers.find((h: any) => h.name === "From")?.value || "";
       const date = headers.find((h: any) => h.name === "Date")?.value || "";
-      details.push({ id: msg.id, subject, from, date, labels: m.data.labelIds });
+      const msgLabels = m.data.labelIds || [];
+      const isProcessed = processedLabelId ? msgLabels.includes(processedLabelId) : false;
+      if (!isProcessed) unprocessedCount++;
+      details.push({ id: msg.id, subject, from, date, labels: msgLabels, isProcessed });
     }
     res.json({
       email: profile.data.emailAddress,
       totalMessages: profile.data.messagesTotal,
-      pdfUnprocessedCount: listRes.data.resultSizeEstimate,
+      processedLabelId,
+      unprocessedCount,
       messages: details,
     });
   } catch (e: unknown) {
