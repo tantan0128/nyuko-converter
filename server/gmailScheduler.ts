@@ -31,6 +31,41 @@ router.get("/gmail-jobs", async (_req, res) => {
   }
 });
 
+/** Gmailデバッグ：メール一覧確認 */
+router.get("/gmail-debug", async (_req, res) => {
+  try {
+    const { google } = await import("googleapis");
+    const clientId = process.env.GMAIL_CLIENT_ID;
+    const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+    const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+    const oauth2Client = new (google.auth.OAuth2 as any)(clientId, clientSecret);
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+    const profile = await gmail.users.getProfile({ userId: "me" });
+    const query = "has:attachment filename:pdf -label:nyuko-processed";
+    const listRes = await gmail.users.messages.list({ userId: "me", q: query, maxResults: 10 });
+    const messages = listRes.data.messages || [];
+    const details = [];
+    for (const msg of messages.slice(0, 5)) {
+      const m = await gmail.users.messages.get({ userId: "me", id: msg.id!, format: "metadata", metadataHeaders: ["Subject", "From", "Date"] });
+      const headers = m.data.payload?.headers || [];
+      const subject = headers.find((h: any) => h.name === "Subject")?.value || "";
+      const from = headers.find((h: any) => h.name === "From")?.value || "";
+      const date = headers.find((h: any) => h.name === "Date")?.value || "";
+      details.push({ id: msg.id, subject, from, date, labels: m.data.labelIds });
+    }
+    res.json({
+      email: profile.data.emailAddress,
+      totalMessages: profile.data.messagesTotal,
+      pdfUnprocessedCount: listRes.data.resultSizeEstimate,
+      messages: details,
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ error: msg });
+  }
+});
+
 /** 手動実行エンドポイント（テスト用） */
 router.post("/gmail-fetch-now", async (_req, res) => {
   try {
