@@ -41,8 +41,9 @@ export interface GmailAttachment {
 export async function fetchUnprocessedPdfEmails(): Promise<GmailAttachment[]> {
   const gmail = getGmailClient();
 
-  // 未処理のPDF添付メールを検索（ラベルで管理）
-  const query = "has:attachment filename:pdf -label:nyuko-processed";
+  // 未処理の添付メールを検索（ラベルで管理）
+  // filename:pdf を外してインデックス遅延の影響を回避。PDF判定はコード側で行う。
+  const query = "has:attachment -label:nyuko-processed";
 
   const listRes = await gmail.users.messages.list({
     userId: "me",
@@ -108,11 +109,15 @@ export async function fetchUnprocessedPdfEmails(): Promise<GmailAttachment[]> {
   return attachments;
 }
 
-/** PDFパートを再帰的に探す */
+/** PDFパートを再帰的に探す（mimeTypeまたはファイル名で判定） */
 function findPdfParts(payload: any): any[] {
   const parts: any[] = [];
 
-  if (payload.mimeType === "application/pdf" && payload.body?.attachmentId) {
+  const isPdf =
+    payload.mimeType === "application/pdf" ||
+    (payload.filename && payload.filename.toLowerCase().endsWith(".pdf"));
+
+  if (isPdf && payload.body?.attachmentId) {
     parts.push(payload);
   }
 
