@@ -4,7 +4,7 @@
  */
 import express from "express";
 import { fetchUnprocessedPdfEmails, markAsProcessed, testGmailConnection } from "./gmail";
-import { loadProductMaster, matchByJan } from "./sheets";
+import { loadProductMaster, matchByJan, matchBySupplierCode, matchByName, guessSupplierPrefix } from "./sheets";
 import { ocrWithDocumentAI, extractWithGemini, ExtractedItem } from "./ocr";
 import { getDb } from "./db";
 import { gmailJobs } from "../drizzle/schema";
@@ -126,14 +126,26 @@ export async function processGmailPdfs(): Promise<{
         imageMimeType = att.mimeType;
       }
 
-      // Gemini抽出（JANモードで処理）
-      const extracted = await extractWithGemini("jan_pdf", ocrText, imageBase64, imageMimeType);
+      // Gemini抽出（JANモード → 商品名モードのフォールバック）
+      let extracted = await extractWithGemini("jan_pdf", ocrText, imageBase64, imageMimeType);
+
+      // JANモードで全件未照合の場合は商品名モードで再試行
+      if (!extracted.error && extracted.items.length > 0) {
+        const hasJan = extracted.items.some(item => item.jan && item.jan.length >= 8);
+        if (!hasJan) {
+          // JANコードが1件も取れなかった → 商品名モードで再抽出
+          extracted = await extractWithGemini("name_pdf", ocrText, imageBase64, imageMimeType);
+        }
+      }
 
       if (extracted.error) {
         errors.push(`${att.filename}: ${extracted.error}`);
         skipped++;
         continue;
       }
+
+      // 仕入元プレフィックスを推定
+      const supplierPrefix = extracted.supplier ? guessSupplierPrefix(extracted.supplier) : null;
 
       const dateStr = extracted.date || formatDate(new Date());
       const rows: Array<{ code: string; stockType: string; quantity: number; date: string; time: string; note: string }> = [];
@@ -143,14 +155,35 @@ export async function processGmailPdfs(): Promise<{
         if (item.quantity <= 0) continue;
         let code: string | null = null;
 
+        // ステップ1: JAN完全一致
         if (item.jan && item.jan.length >= 8) {
           code = matchByJan(item.jan, products);
+        }
+
+        // ステップ2: 仕入先品番コードで照合
+        if (!code && item.supplierCode) {
+          code = matchBySupplierCode(item.supplierCode, products, supplierPrefix ?? undefined);
+        }
+
+        // ステップ3: 仕入元絞り込みで商品名照合
+        if (!code && item.productName && supplierPrefix) {
+          code = matchByName(item.productName, products, supplierPrefix);
+        }
+
+        // ステップ4: 全体から商品名照合
+        if (!code && item.productName) {
+          code = matchByName(item.productName, products);
         }
 
         if (code) {
           rows.push({ code, stockType: "通常在庫", quantity: item.quantity, date: dateStr, time: "00:00", note: "" });
         } else {
-          notFoundItems.push(item.jan ? `JAN:${item.jan}` : item.productName || "不明");
+          const label = item.jan
+            ? `JAN:${item.jan}`
+            : item.productName
+              ? `${item.productName}${item.supplierCode ? ` [品番:${item.supplierCode}]` : ""}`
+              : "不明";
+          notFoundItems.push(label);
         }
       }
 
