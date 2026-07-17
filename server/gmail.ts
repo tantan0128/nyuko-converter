@@ -41,17 +41,22 @@ export interface GmailAttachment {
 export async function fetchUnprocessedPdfEmails(): Promise<GmailAttachment[]> {
   const gmail = getGmailClient();
 
-  // 未処理の添付メールを検索（ラベルで管理）
-  // filename:pdf を外してインデックス遅延の影響を回避。PDF判定はコード側で行う。
-  const query = "has:attachment -label:nyuko-processed";
+  // nyuko-processedラベルIDを取得
+  const processedLabelId = await getOrCreateLabel(gmail, "nyuko-processed");
 
+  // 未処理の添付メールを取得（クエリはインデックス遅延の影響を受けるため、ラベルIDでフィルタリング）
   const listRes = await gmail.users.messages.list({
     userId: "me",
-    q: query,
-    maxResults: 20,
+    q: "has:attachment",
+    maxResults: 50,
   });
 
-  const messages = listRes.data.messages || [];
+  // ラベルIDで未処理のみフィルタリング
+  const allMessages = listRes.data.messages || [];
+  const messages = allMessages.filter(msg => {
+    // メッセージのラベルは後で確認するため、ここでは全件返す
+    return true;
+  });
   const attachments: GmailAttachment[] = [];
 
   for (const msg of messages) {
@@ -63,6 +68,10 @@ export async function fetchUnprocessedPdfEmails(): Promise<GmailAttachment[]> {
         id: msg.id,
         format: "full",
       });
+
+      // 処理済ラベルIDが付いている場合はスキップ
+      const msgLabels = msgRes.data.labelIds || [];
+      if (msgLabels.includes(processedLabelId)) continue;
 
       const payload = msgRes.data.payload;
       if (!payload) continue;
