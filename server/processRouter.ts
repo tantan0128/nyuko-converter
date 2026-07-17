@@ -141,22 +141,18 @@ async function processImageOrPDF(
     }
 
     // ステップ3: 仕入元絞り込みで商品名/D列キーワード照合
-    if (!code && (useProductName || !item.jan)) {
-      if (item.productName && supplierPrefix) {
-        code = matchByName(item.productName, products, supplierPrefix);
-        if (code) {
-          logs.push(`商品名照合成功（${supplierPrefix}-絞り込み）: ${item.productName} → ${code}`);
-        }
+    if (!code && item.productName && supplierPrefix) {
+      code = matchByName(item.productName, products, supplierPrefix);
+      if (code) {
+        logs.push(`商品名照合成功（${supplierPrefix}-絞り込み）: ${item.productName} → ${code}`);
       }
     }
 
     // ステップ4: 絞り込みなしで全体から商品名/D列キーワード照合
-    if (!code && (useProductName || !item.jan)) {
-      if (item.productName) {
-        code = matchByName(item.productName, products);
-        if (code) {
-          logs.push(`商品名照合成功（全体）: ${item.productName} → ${code}`);
-        }
+    if (!code && item.productName) {
+      code = matchByName(item.productName, products);
+      if (code) {
+        logs.push(`商品名照合成功（全体）: ${item.productName} → ${code}`);
       }
     }
 
