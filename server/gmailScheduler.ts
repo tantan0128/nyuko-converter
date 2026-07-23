@@ -249,6 +249,22 @@ export async function processGmailPdfs(): Promise<{
       // 同一コードの数量合算
       const mergedRows = mergeRowsByCode(rows);
 
+      // OCRで会社名が取れなかった場合、照合済みコード（ok-xxxなど）からベンダープレフィックスを逆引き
+      if (!extracted.supplier && rows.length > 0) {
+        const matchedPrefixCounts: Record<string, number> = {};
+        for (const row of rows) {
+          const m = row.code.match(/^([a-z]{2,3})-/i);
+          if (m) {
+            const p = m[1].toLowerCase();
+            matchedPrefixCounts[p] = (matchedPrefixCounts[p] || 0) + 1;
+          }
+        }
+        const topMatchedPrefix = Object.entries(matchedPrefixCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+        if (topMatchedPrefix && VENDOR_CODE_TO_NAME[topMatchedPrefix]) {
+          extracted = { ...extracted, supplier: VENDOR_CODE_TO_NAME[topMatchedPrefix] };
+        }
+      }
+
       // CSV生成（備考列に仕入れ元名を追加）
       const supplierName = extracted.supplier || "";
       const mergedRowsWithSupplier = mergedRows.map(r => ({ ...r, note: supplierName }));
