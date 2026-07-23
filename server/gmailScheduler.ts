@@ -4,7 +4,7 @@
  */
 import express from "express";
 import { fetchUnprocessedPdfEmails, markAsProcessed, testGmailConnection } from "./gmail";
-import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword } from "./sheets";
+import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, VENDOR_CODE_TO_NAME } from "./sheets";
 import { ocrWithDocumentAI, extractWithGemini, ExtractedItem } from "./ocr";
 import { getDb } from "./db";
 import { gmailJobs } from "../drizzle/schema";
@@ -173,7 +173,30 @@ export async function processGmailPdfs(): Promise<{
       }
 
       // 仕入元プレフィックスを推定
-      const supplierPrefix = extracted.supplier ? guessSupplierPrefix(extracted.supplier) : null;
+      let supplierPrefix = extracted.supplier ? guessSupplierPrefix(extracted.supplier) : null;
+
+      // OCRで会社名が読み取れなかった場合、商品コードのベンダーコードから推定
+      if (!supplierPrefix && extracted.items.length > 0) {
+        // 商品コードのベンダープレフィックス（ハイフン前の小文字アルファベット）を集計
+        const prefixCounts: Record<string, number> = {};
+        for (const item of extracted.items) {
+          if (item.supplierCode) {
+            const m = item.supplierCode.match(/^([a-z]{2,3})-/i);
+            if (m) {
+              const p = m[1].toLowerCase();
+              prefixCounts[p] = (prefixCounts[p] || 0) + 1;
+            }
+          }
+        }
+        // 最多数のプレフィックスを使用
+        const topPrefix = Object.entries(prefixCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+        if (topPrefix && VENDOR_CODE_TO_NAME[topPrefix]) {
+          supplierPrefix = topPrefix;
+          if (!extracted.supplier) {
+            extracted = { ...extracted, supplier: VENDOR_CODE_TO_NAME[topPrefix] };
+          }
+        }
+      }
 
       const dateStr = extracted.date || formatDate(new Date());
       const rows: Array<{ code: string; stockType: string; quantity: number; date: string; time: string; note: string }> = [];
@@ -226,8 +249,10 @@ export async function processGmailPdfs(): Promise<{
       // 同一コードの数量合算
       const mergedRows = mergeRowsByCode(rows);
 
-      // CSV生成
-      const csvContent = generateCsv(mergedRows);
+      // CSV生成（備考列に仕入れ元名を追加）
+      const supplierName = extracted.supplier || "";
+      const mergedRowsWithSupplier = mergedRows.map(r => ({ ...r, note: supplierName }));
+      const csvContent = generateCsv(mergedRowsWithSupplier);
 
       // DBに保存
       if (db) {

@@ -119,8 +119,27 @@ export default function GmailJobs() {
       toast.error("CSVデータがありません");
       return;
     }
+    // 備考列に仕入れ元名を動的に追加（既存ジョブにも対応）
+    const supplierName = job.supplier || "";
+    const csvWithSupplier = (() => {
+      const lines = job.csvContent.split("\n");
+      return lines.map((line, idx) => {
+        if (idx === 0) return line; // ヘッダーはそのまま
+        if (!line.trim()) return line;
+        // 備考列（6列目）に仕入れ元名を設定（既存値が空の場合のみ）
+        const cols = line.split(",");
+        if (cols.length >= 6) {
+          const currentNote = cols[5].replace(/^"|"$/g, "").replace(/""/g, '"');
+          if (!currentNote && supplierName) {
+            cols[5] = `"${supplierName}"`;
+          }
+          return cols.join(",");
+        }
+        return line;
+      }).join("\n");
+    })();
     const bom = "\uFEFF";
-    const blob = new Blob([bom + job.csvContent], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([bom + csvWithSupplier], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     const d = new Date(job.processedAt);
