@@ -57,6 +57,17 @@ interface SyncStatus {
   syncedAt: string | null;
 }
 
+interface GmailJob {
+  id: number;
+  filename: string;
+  processedAt: string;
+  rowCount: number;
+  notFoundCount: number;
+  csvContent: string | null;
+  supplier: string | null;
+  status: string;
+}
+
 export default function Main() {
   const { logout } = useAppAuth();
   const [mode, setMode] = useState<ProcessMode>("jan_jpg");
@@ -71,6 +82,7 @@ export default function Main() {
     open: false, productName: "", keyword: "", code: "", registering: false
   });
   const [productCodes, setProductCodes] = useState<{code: string; name: string}[]>([]);
+  const [gmailJobs, setGmailJobs] = useState<GmailJob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentMode = MODES.find((m) => m.id === mode)!;
@@ -176,6 +188,33 @@ export default function Main() {
   }, []);
 
   useEffect(() => { fetchProductCodes(); }, [fetchProductCodes]);
+
+  // Gmailジョブ一覧を取得
+  const fetchGmailJobs = useCallback(async () => {
+    try {
+      const res = await fetch("/api/gmail-jobs");
+      if (res.ok) {
+        const data = await res.json();
+        setGmailJobs(Array.isArray(data) ? data.slice(0, 5) : []);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { fetchGmailJobs(); }, [fetchGmailJobs]);
+
+  const downloadGmailJobCsv = (job: GmailJob) => {
+    if (!job.csvContent) { toast.error("CSVデータがありません"); return; }
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + job.csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const d = new Date(job.processedAt);
+    const mmdd = `${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    a.href = url;
+    a.download = `助ネコ在庫up${job.supplier || ""}${mmdd}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const openModal = (item: NotFoundItem) => {
     setModal({ open: true, productName: item.productName, keyword: item.productName, code: "", registering: false });
@@ -303,6 +342,51 @@ export default function Main() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
           {/* Left column: Mode + Upload */}
           <div className="lg:col-span-4 border-r border-black pr-8">
+            {/* Gmail自動取り込みCSVダウンロード */}
+            <div className="mb-8">
+              <p className="text-xs font-bold tracking-[0.15em] uppercase text-gray-400 mb-3">Gmail自動取り込み</p>
+              <div className="h-px bg-[oklch(0.48_0.22_27)] mb-4" />
+              {gmailJobs.length === 0 ? (
+                <div className="border-2 border-dashed border-black/20 p-4 text-center">
+                  <p className="text-xs text-gray-400">処理済みジョブなし</p>
+                  <Link href="/gmail-jobs" className="text-xs font-bold text-[oklch(0.48_0.22_27)] hover:underline mt-1 block">Gmail取り込みページへ →</Link>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {gmailJobs.map((job) => (
+                    <button
+                      key={job.id}
+                      onClick={() => downloadGmailJobCsv(job)}
+                      disabled={!job.csvContent}
+                      className="w-full text-left border-2 border-black px-4 py-3 hover:bg-black hover:text-white transition-colors group disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {job.supplier && (
+                              <span className="text-xs font-black text-[oklch(0.48_0.22_27)] group-hover:text-white">{job.supplier}</span>
+                            )}
+                            <span className="text-xs font-bold text-black group-hover:text-white truncate">
+                              {new Date(job.processedAt).toLocaleDateString("ja-JP", { month: "2-digit", day: "2-digit" })}
+                              　{new Date(job.processedAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-gray-500 group-hover:text-gray-300">{job.rowCount}件</span>
+                            {job.notFoundCount > 0 && (
+                              <span className="text-xs text-amber-600 group-hover:text-amber-300">未登録{job.notFoundCount}件</span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-xs font-black tracking-wider uppercase shrink-0">↓ CSV</span>
+                      </div>
+                    </button>
+                  ))}
+                  <Link href="/gmail-jobs" className="block text-center text-xs font-bold text-gray-400 hover:text-black mt-1 transition-colors">すべて見る →</Link>
+                </div>
+              )}
+            </div>
+
             {/* Mode selection */}
             <div className="mb-8">
               <p className="text-xs font-bold tracking-[0.15em] uppercase text-gray-400 mb-3">処理モード</p>

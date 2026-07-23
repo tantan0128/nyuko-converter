@@ -94,11 +94,11 @@
 - [x] Gmailアカウント設定手順をユーザーに案内
 
 ## モード整理（一新）
-- [ ] 不要モード削除: 三陽（sanyo）・十二堂（junidou）・コレド（cored）・イシダ（ishida）・前原（maehara）をUIとバックエンドから削除
-- [ ] 残すモード: JAN読み取りJPG・JAN読み取りPDF・商品名読み取りJPG の3モードに整理
-- [ ] processRouter.tsからprocessCSV・processExcel関数と対応するモード分岐を削除
-- [ ] ocr.tsのbuildPromptからmaehara/ishida/cored/junidou/sanyoのプロンプトを削除
-- [ ] Main.tsxのMODES配列を3モードに整理
+- [x] 不要モード削除: 三陽（sanyo）・十二堂（junidou）・コレド（cored）・イシダ（ishida）・前原（maehara）をUIとバックエンドから削除
+- [x] 残すモード: JAN読み取りJPG・JAN読み取りPDF・商品名読み取りJPG の3モードに整理
+- [x] processRouter.tsからprocessCSV・processExcel関数と対応するモード分岐を削除
+- [x] ocr.tsのbuildPromptからmaehara/ishida/cored/junidou/sanyoのプロンプトを削除
+- [x] Main.tsxのMODES配列を3モードに整理
 
 ## モード整理・照合ロジック改善（2026-07-16）
 - [x] 不要モード削除: 三陽・十二堂・コレド・イシダ・前原・商品名読み取りJPGをUIとバックエンドから削除
@@ -118,3 +118,6 @@
 - [x] gmailScheduler.tsでnotFoundContent・supplierをDBに保存するよう更新
 - [x] GmailJobs.tsxにsupplier（仕入れ元名）バッジをファイル名横に表示
 - [x] GmailJobs.tsxに未登録商品詳細モーダルを追加（「未登録 N件」ボタンで表示）
+
+## Main画面にGmail自動取り込みCSVダウンロードを大きく表示（2026-07-23）
+- [x] Main.tsxの処理モードセクション上部にGmailジョブCSVダウンロードエリアを大きなボタン形式で追加
