@@ -128,3 +128,8 @@
 - [x] CSVダウンロード時にdownloaded_atを記録するAPIエンドポイント追加
 - [x] Main.tsxで未ダウンロードジョブを強調表示（赤バッジ・NEW表示）
 - [x] GmailJobs.tsxでも未ダウンロード状態を表示
+
+## UI改善3点（2026-07-23）
+- [ ] GmailJobs.tsxの件数バッジ（変換成功件数）を大きく目立たせる
+- [ ] GmailJobs.tsxの未登録詳細モーダルにその場登録ボタンを追加
+- [ ] Main.tsxの処理モード説明文を日本語に統一（英語UPPERCASE除去）
