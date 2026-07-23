@@ -286,13 +286,13 @@ export default function Main() {
             <div className="flex items-center gap-4">
               <Link
                 href="/gmail-jobs"
-                className="text-xs font-bold tracking-[0.1em] uppercase text-gray-400 hover:text-black transition-colors flex items-center gap-1"
+                className="text-sm font-bold text-gray-500 hover:text-black transition-colors flex items-center gap-1"
               >
                 <span>📧</span> Gmail自動取り込み
               </Link>
               <button
                 onClick={logout}
-                className="text-xs font-bold tracking-[0.1em] uppercase text-gray-400 hover:text-black transition-colors"
+                className="text-sm font-bold text-gray-500 hover:text-black transition-colors"
               >
                 ログアウト
               </button>
@@ -305,8 +305,8 @@ export default function Main() {
         {/* 商品マスター同期バー */}
         <div className="mb-6 border border-black p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-bold tracking-[0.12em] uppercase text-gray-500 mb-1">商品マスター（スプレッドシート同期）</p>
-            <div className="flex items-center gap-4 text-xs text-gray-500">
+            <p className="text-sm font-bold text-gray-700 mb-1">商品マスター（スプレッドシート同期）</p>
+            <div className="flex items-center gap-4 text-sm text-gray-600">
               <span>
                 登録件数：
                 <span className="font-black text-black ml-1">
@@ -326,7 +326,7 @@ export default function Main() {
           <button
             onClick={handleSync}
             disabled={syncing}
-            className="flex-shrink-0 bg-black text-white px-5 py-2 text-xs font-black tracking-[0.1em] uppercase hover:bg-[oklch(0.48_0.22_27)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex-shrink-0 bg-black text-white px-5 py-2 text-sm font-black tracking-[0.05em] uppercase hover:bg-[oklch(0.48_0.22_27)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {syncing ? (
               <span className="flex items-center gap-2">
@@ -395,14 +395,14 @@ export default function Main() {
 
             {/* Mode selection */}
             <div className="mb-8">
-              <p className="text-sm font-black tracking-[0.1em] uppercase text-black mb-3">処理モード</p>
+              <p className="text-base font-black text-black mb-3">処理モード</p>
               <div className="h-px bg-black mb-4" />
               <div className="space-y-0">
                 {MODES.map((m) => (
                   <button
                     key={m.id}
                     onClick={() => { setMode(m.id); setFiles([]); setResult(null); }}
-                    className={`w-full text-left px-4 py-3 text-sm font-medium border-b border-black/10 transition-colors ${
+                    className={`w-full text-left px-4 py-3 text-base font-medium border-b border-black/10 transition-colors ${
                       mode === m.id
                         ? "bg-black text-white"
                         : "bg-white text-black hover:bg-gray-50"
@@ -419,7 +419,7 @@ export default function Main() {
 
             {/* File upload */}
             <div className="mb-6">
-              <p className="text-sm font-black tracking-[0.1em] uppercase text-black mb-3">ファイル選択</p>
+              <p className="text-base font-black text-black mb-3">ファイル選択</p>
               <div className="h-px bg-black mb-4" />
               <div
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -431,8 +431,8 @@ export default function Main() {
                 }`}
               >
                 <div className="w-8 h-8 bg-black mx-auto mb-3" style={{ clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)" }} />
-                <p className="text-xs font-bold tracking-wide uppercase text-gray-500 mb-1">ドロップ または クリック</p>
-                <p className="text-xs text-gray-400">{currentMode.description}</p>
+                <p className="text-sm font-bold text-gray-600 mb-1">ドロップ または クリック</p>
+                <p className="text-sm text-gray-500">{currentMode.description}</p>
               </div>
               <input
                 ref={fileInputRef}
@@ -447,7 +447,7 @@ export default function Main() {
             {/* File list */}
             {files.length > 0 && (
               <div className="mb-6">
-                <p className="text-xs font-bold tracking-[0.15em] uppercase text-gray-400 mb-2">
+                <p className="text-sm font-bold text-gray-700 mb-2">
                   選択ファイル <span className="text-[oklch(0.48_0.22_27)]">{files.length}</span>
                 </p>
                 <div className="h-px bg-black mb-3" />
@@ -471,7 +471,7 @@ export default function Main() {
             <button
               onClick={handleProcess}
               disabled={processing || files.length === 0}
-              className="w-full bg-black text-white py-4 text-sm font-black tracking-[0.1em] uppercase hover:bg-[oklch(0.48_0.22_27)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="w-full bg-black text-white py-4 text-base font-black tracking-[0.05em] uppercase hover:bg-[oklch(0.48_0.22_27)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {processing ? (
                 <span className="flex items-center justify-center gap-2">
@@ -487,7 +487,7 @@ export default function Main() {
           {/* Right column: Results */}
           <div className="lg:col-span-8 lg:pl-8 mt-8 lg:mt-0">
             <div className="mb-4">
-              <p className="text-sm font-black tracking-[0.1em] uppercase text-black mb-3">処理結果</p>
+              <p className="text-base font-black text-black mb-3">処理結果</p>
               <div className="h-px bg-black" />
             </div>
 
@@ -549,7 +549,7 @@ export default function Main() {
                 {/* Result table */}
                 {result.rows.length > 0 && (
                   <div>
-                    <p className="text-xs font-bold tracking-[0.15em] uppercase text-gray-400 mb-2">変換データ</p>
+                    <p className="text-sm font-bold text-gray-700 mb-2">変換データ</p>
                     <div className="h-px bg-black mb-3" />
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs border-collapse">
@@ -687,7 +687,7 @@ export default function Main() {
                   <div>
                     <button
                       onClick={() => setShowLogs(!showLogs)}
-                      className="text-xs font-bold tracking-[0.1em] uppercase text-gray-400 hover:text-black transition-colors"
+                      className="text-sm font-bold text-gray-500 hover:text-black transition-colors"
                     >
                       {showLogs ? "▲" : "▼"} 処理ログ ({result.logs.length}件)
                     </button>
