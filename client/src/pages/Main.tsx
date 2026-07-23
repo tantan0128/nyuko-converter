@@ -344,12 +344,14 @@ export default function Main() {
           <div className="lg:col-span-4 border-r border-black pr-8">
             {/* Gmail自動取り込みCSVダウンロード */}
             <div className="mb-8">
-              <p className="text-xs font-bold tracking-[0.15em] uppercase text-gray-400 mb-3">Gmail自動取り込み</p>
-              <div className="h-px bg-[oklch(0.48_0.22_27)] mb-4" />
+              <div className="bg-[oklch(0.48_0.22_27)] px-4 py-2 flex items-center justify-between mb-3">
+                <span className="text-sm font-black tracking-[0.1em] uppercase text-white">📧 Gmail自動取り込み</span>
+                <Link href="/gmail-jobs" className="text-xs font-bold text-white/70 hover:text-white transition-colors">すべて見る →</Link>
+              </div>
               {gmailJobs.length === 0 ? (
-                <div className="border-2 border-dashed border-black/20 p-4 text-center">
-                  <p className="text-xs text-gray-400">処理済みジョブなし</p>
-                  <Link href="/gmail-jobs" className="text-xs font-bold text-[oklch(0.48_0.22_27)] hover:underline mt-1 block">Gmail取り込みページへ →</Link>
+                <div className="bg-gray-50 border border-black/10 p-4 text-center">
+                  <p className="text-xs text-gray-400 mb-1">処理済みジョブなし</p>
+                  <Link href="/gmail-jobs" className="text-xs font-bold text-[oklch(0.48_0.22_27)] hover:underline">Gmail取り込みページへ →</Link>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -358,38 +360,42 @@ export default function Main() {
                       key={job.id}
                       onClick={() => downloadGmailJobCsv(job)}
                       disabled={!job.csvContent}
-                      className="w-full text-left border-2 border-black px-4 py-3 hover:bg-black hover:text-white transition-colors group disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full text-left bg-white border-2 border-[oklch(0.48_0.22_27)] px-4 py-3 hover:bg-[oklch(0.48_0.22_27)] transition-colors group disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            {job.supplier && (
-                              <span className="text-xs font-black text-[oklch(0.48_0.22_27)] group-hover:text-white">{job.supplier}</span>
+                            {job.supplier ? (
+                              <span className="text-sm font-black text-[oklch(0.48_0.22_27)] group-hover:text-white">{job.supplier}</span>
+                            ) : (
+                              <span className="text-sm font-black text-black group-hover:text-white">納品書</span>
                             )}
-                            <span className="text-xs font-bold text-black group-hover:text-white truncate">
+                            <span className="text-xs font-bold text-gray-600 group-hover:text-white/80">
                               {new Date(job.processedAt).toLocaleDateString("ja-JP", { month: "2-digit", day: "2-digit" })}
-                              　{new Date(job.processedAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
+                               {new Date(job.processedAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-xs text-gray-500 group-hover:text-gray-300">{job.rowCount}件</span>
+                            <span className="text-xs text-gray-500 group-hover:text-white/70">{job.rowCount}件変換成功</span>
                             {job.notFoundCount > 0 && (
-                              <span className="text-xs text-amber-600 group-hover:text-amber-300">未登録{job.notFoundCount}件</span>
+                              <span className="text-xs font-bold text-amber-600 group-hover:text-yellow-200">⚠ 未登録{job.notFoundCount}件</span>
                             )}
                           </div>
                         </div>
-                        <span className="text-xs font-black tracking-wider uppercase shrink-0">↓ CSV</span>
+                        <div className="flex flex-col items-center shrink-0">
+                          <span className="text-lg font-black text-[oklch(0.48_0.22_27)] group-hover:text-white leading-none">↓</span>
+                          <span className="text-xs font-black tracking-wider text-[oklch(0.48_0.22_27)] group-hover:text-white">CSV</span>
+                        </div>
                       </div>
                     </button>
                   ))}
-                  <Link href="/gmail-jobs" className="block text-center text-xs font-bold text-gray-400 hover:text-black mt-1 transition-colors">すべて見る →</Link>
                 </div>
               )}
             </div>
 
             {/* Mode selection */}
             <div className="mb-8">
-              <p className="text-xs font-bold tracking-[0.15em] uppercase text-gray-400 mb-3">処理モード</p>
+              <p className="text-sm font-black tracking-[0.1em] uppercase text-black mb-3">処理モード</p>
               <div className="h-px bg-black mb-4" />
               <div className="space-y-0">
                 {MODES.map((m) => (
@@ -413,7 +419,7 @@ export default function Main() {
 
             {/* File upload */}
             <div className="mb-6">
-              <p className="text-xs font-bold tracking-[0.15em] uppercase text-gray-400 mb-3">ファイル選択</p>
+              <p className="text-sm font-black tracking-[0.1em] uppercase text-black mb-3">ファイル選択</p>
               <div className="h-px bg-black mb-4" />
               <div
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -480,19 +486,18 @@ export default function Main() {
 
           {/* Right column: Results */}
           <div className="lg:col-span-8 lg:pl-8 mt-8 lg:mt-0">
-            <div className="mb-6">
-              <p className="text-xs font-bold tracking-[0.15em] uppercase text-gray-400 mb-3">処理結果</p>
-              <div className="h-px bg-black mb-4" />
+            <div className="mb-4">
+              <p className="text-sm font-black tracking-[0.1em] uppercase text-black mb-3">処理結果</p>
+              <div className="h-px bg-black" />
             </div>
 
             {!result && !processing && (
-              <div className="flex flex-col items-center justify-center py-24 text-center">
-                <div className="w-12 h-12 border-2 border-black/10 mb-4" />
-                <p className="text-xs font-bold tracking-widest uppercase text-gray-300">
-                  ファイルを選択して処理を実行してください
+              <div className="flex flex-col items-center justify-center py-8 text-center border border-dashed border-black/20 mt-4">
+                <p className="text-xs font-bold text-gray-400">
+                  ファイルを選択して左の「変換・処理実行」を押すと結果が表示されます
                 </p>
                 {syncStatus && syncStatus.count === 0 && (
-                  <p className="text-xs text-[oklch(0.48_0.22_27)] mt-4 font-bold">
+                  <p className="text-xs text-[oklch(0.48_0.22_27)] mt-3 font-bold">
                     ⚠ 商品マスターが未同期です。先に「スプレッドシートから同期」を実行してください。
                   </p>
                 )}
