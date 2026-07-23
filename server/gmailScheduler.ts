@@ -8,7 +8,7 @@ import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessS
 import { ocrWithDocumentAI, extractWithGemini, ExtractedItem } from "./ocr";
 import { getDb } from "./db";
 import { gmailJobs } from "../drizzle/schema";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 const router = express.Router();
 
@@ -25,6 +25,21 @@ router.get("/gmail-jobs", async (_req, res) => {
     if (!db) return res.json([]);
     const jobs = await db.select().from(gmailJobs).orderBy(desc(gmailJobs.processedAt)).limit(50);
     res.json(jobs);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ error: msg });
+  }
+});
+
+/** CSVダウンロード済みフラグを記録 */
+router.post("/gmail-jobs/:id/downloaded", async (req, res) => {
+  try {
+    const db = await getDb();
+    if (!db) return res.json({ ok: false });
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: "invalid id" });
+    await db.update(gmailJobs).set({ downloadedAt: new Date() }).where(eq(gmailJobs.id, id));
+    res.json({ ok: true });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     res.status(500).json({ error: msg });

@@ -121,3 +121,10 @@
 
 ## Main画面にGmail自動取り込みCSVダウンロードを大きく表示（2026-07-23）
 - [x] Main.tsxの処理モードセクション上部にGmailジョブCSVダウンロードエリアを大きなボタン形式で追加
+
+## GmailジョブCSVダウンロード済みフラグ追加（2026-07-23）
+- [x] gmail_jobsテーブルにdownloaded_atカラム追加・マイグレーション実行
+- [x] /api/gmail-jobs APIでdownloaded_atを返す
+- [x] CSVダウンロード時にdownloaded_atを記録するAPIエンドポイント追加
+- [x] Main.tsxで未ダウンロードジョブを強調表示（赤バッジ・NEW表示）
+- [x] GmailJobs.tsxでも未ダウンロード状態を表示

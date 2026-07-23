@@ -54,6 +54,7 @@ export const gmailJobs = mysqlTable("gmail_jobs", {
   notFoundContent: text("notFoundContent"),
   supplier: varchar("supplier", { length: 128 }),
   status: varchar("status", { length: 32 }).default("done").notNull(),
+  downloadedAt: timestamp("downloadedAt"),
 });
 
 export type GmailJob = typeof gmailJobs.$inferSelect;

@@ -66,6 +66,7 @@ interface GmailJob {
   csvContent: string | null;
   supplier: string | null;
   status: string;
+  downloadedAt: string | null;
 }
 
 export default function Main() {
@@ -202,7 +203,7 @@ export default function Main() {
 
   useEffect(() => { fetchGmailJobs(); }, [fetchGmailJobs]);
 
-  const downloadGmailJobCsv = (job: GmailJob) => {
+  const downloadGmailJobCsv = async (job: GmailJob) => {
     if (!job.csvContent) { toast.error("CSVデータがありません"); return; }
     const bom = "\uFEFF";
     const blob = new Blob([bom + job.csvContent], { type: "text/csv;charset=utf-8;" });
@@ -214,6 +215,9 @@ export default function Main() {
     a.download = `助ネコ在庫up${job.supplier || ""}${mmdd}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    // ダウンロード済みを記録して一覧を更新
+    await fetch(`/api/gmail-jobs/${job.id}/downloaded`, { method: "POST" }).catch(() => {});
+    setGmailJobs(prev => prev.map(j => j.id === job.id ? { ...j, downloadedAt: new Date().toISOString() } : j));
   };
 
   const openModal = (item: NotFoundItem) => {
@@ -342,55 +346,21 @@ export default function Main() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
           {/* Left column: Mode + Upload */}
           <div className="lg:col-span-4 border-r border-black pr-8">
-            {/* Gmail自動取り込みCSVダウンロード */}
+            {/* Gmail自動取り込みリンク */}
             <div className="mb-8">
-              <div className="bg-[oklch(0.48_0.22_27)] px-4 py-2 flex items-center justify-between mb-3">
-                <span className="text-sm font-black tracking-[0.1em] uppercase text-white">📧 Gmail自動取り込み</span>
-                <Link href="/gmail-jobs" className="text-xs font-bold text-white/70 hover:text-white transition-colors">すべて見る →</Link>
-              </div>
-              {gmailJobs.length === 0 ? (
-                <div className="bg-gray-50 border border-black/10 p-4 text-center">
-                  <p className="text-xs text-gray-400 mb-1">処理済みジョブなし</p>
-                  <Link href="/gmail-jobs" className="text-xs font-bold text-[oklch(0.48_0.22_27)] hover:underline">Gmail取り込みページへ →</Link>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {gmailJobs.map((job) => (
-                    <button
-                      key={job.id}
-                      onClick={() => downloadGmailJobCsv(job)}
-                      disabled={!job.csvContent}
-                      className="w-full text-left bg-white border-2 border-[oklch(0.48_0.22_27)] px-4 py-3 hover:bg-[oklch(0.48_0.22_27)] transition-colors group disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {job.supplier ? (
-                              <span className="text-sm font-black text-[oklch(0.48_0.22_27)] group-hover:text-white">{job.supplier}</span>
-                            ) : (
-                              <span className="text-sm font-black text-black group-hover:text-white">納品書</span>
-                            )}
-                            <span className="text-xs font-bold text-gray-600 group-hover:text-white/80">
-                              {new Date(job.processedAt).toLocaleDateString("ja-JP", { month: "2-digit", day: "2-digit" })}
-                               {new Date(job.processedAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-xs text-gray-500 group-hover:text-white/70">{job.rowCount}件変換成功</span>
-                            {job.notFoundCount > 0 && (
-                              <span className="text-xs font-bold text-amber-600 group-hover:text-yellow-200">⚠ 未登録{job.notFoundCount}件</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-center shrink-0">
-                          <span className="text-lg font-black text-[oklch(0.48_0.22_27)] group-hover:text-white leading-none">↓</span>
-                          <span className="text-xs font-black tracking-wider text-[oklch(0.48_0.22_27)] group-hover:text-white">CSV</span>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
+              <p className="text-base font-black text-black mb-3">Gmail自動取り込み</p>
+              <div className="h-px bg-[oklch(0.48_0.22_27)] mb-4" />
+              <Link
+                href="/gmail-jobs"
+                className="block w-full bg-[oklch(0.48_0.22_27)] text-white px-5 py-4 text-base font-black text-center hover:bg-[oklch(0.38_0.22_27)] transition-colors"
+              >
+                {(() => {
+                  const newCount = gmailJobs.filter(j => !j.downloadedAt).length;
+                  return newCount > 0
+                    ? `📥 未ダウンロード ${newCount}件 — ダウンロードページへ`
+                    : "📧 Gmail取り込み一覧へ";
+                })()}
+              </Link>
             </div>
 
             {/* Mode selection */}

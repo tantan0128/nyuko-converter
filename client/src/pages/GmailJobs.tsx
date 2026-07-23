@@ -24,6 +24,7 @@ interface GmailJob {
   notFoundContent: string | null;
   supplier: string | null;
   status: string;
+  downloadedAt: string | null;
 }
 
 interface GmailStatus {
@@ -89,7 +90,7 @@ export default function GmailJobs() {
     }
   }
 
-  function downloadCsv(job: GmailJob) {
+  async function downloadCsv(job: GmailJob) {
     if (!job.csvContent) {
       toast.error("CSVデータがありません");
       return;
@@ -105,6 +106,9 @@ export default function GmailJobs() {
     a.download = `助ネコ在庫up${supplierPart}${mmdd}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    // ダウンロード済みを記録
+    await fetch(`/api/gmail-jobs/${job.id}/downloaded`, { method: "POST" }).catch(() => {});
+    setJobs(prev => prev.map(j => j.id === job.id ? { ...j, downloadedAt: new Date().toISOString() } : j));
   }
 
   function parseNotFound(job: GmailJob): NotFoundItem[] {
@@ -240,14 +244,21 @@ export default function GmailJobs() {
               </div>
             ) : (
               <div className="space-y-3">
-                {jobs.map((job) => (
+                {jobs.map((job) => {
+                  const isNew = !job.downloadedAt;
+                  return (
                   <div
                     key={job.id}
-                    className="flex items-center justify-between p-3 bg-white border rounded-lg hover:bg-gray-50"
+                    className={`flex items-center justify-between p-3 border rounded-lg ${
+                      isNew ? "bg-red-50 border-red-300" : "bg-white border-gray-200 hover:bg-gray-50"
+                    }`}
                   >
                     <div className="flex-1 min-w-0">
                       {/* ファイル名 + 仕入れ元名 + ステータス */}
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        {isNew && (
+                          <Badge className="text-xs shrink-0 bg-red-500 text-white border-0">未ダウンロード</Badge>
+                        )}
                         <span className="font-medium text-sm text-gray-800 truncate max-w-xs">
                           {job.filename}
                         </span>
@@ -299,7 +310,8 @@ export default function GmailJobs() {
                       </Button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
