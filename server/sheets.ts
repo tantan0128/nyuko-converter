@@ -272,26 +272,52 @@ export async function appendKeywordByName(
     });
 
     const rows = response.data.values || [];
-    // 商品名（C列）で部分一致検索
-    // productNameが指定されていればそれで検索、なければkeywordで検索
-    const searchTerm = productName || keyword;
     let rowIndex = -1;
     let currentD = "";
     let matchedName = "";
 
-    const searchLower = searchTerm.toLowerCase();
+    // ① まずkeyword（品番）でB列を完全一致検索
+    const kwLower = keyword.toLowerCase().trim();
     for (let i = 0; i < rows.length; i++) {
-      const name = String(rows[i][2] || "").trim();
-      if (name && name.toLowerCase().includes(searchLower)) {
+      const code = String(rows[i][1] || "").trim().toLowerCase();
+      if (code && code === kwLower) {
         rowIndex = i + 1;
         currentD = String(rows[i][3] || "").trim();
-        matchedName = name;
+        matchedName = String(rows[i][2] || "").trim();
         break;
       }
     }
 
+    // ② B列で見つからない場合、productName（商品名）でC列を部分一致検索
+    if (rowIndex < 0 && productName) {
+      const searchLower = productName.toLowerCase().trim();
+      for (let i = 0; i < rows.length; i++) {
+        const name = String(rows[i][2] || "").trim();
+        if (name && name.toLowerCase().includes(searchLower)) {
+          rowIndex = i + 1;
+          currentD = String(rows[i][3] || "").trim();
+          matchedName = name;
+          break;
+        }
+      }
+    }
+
+    // ③ 商品名でも見つからない場合、C列でkeywordを部分一致検索
     if (rowIndex < 0) {
-      return { ok: false, error: `「${searchTerm}」に一致する商品が見つかりません。スプレッドシートに直接登録してください。` };
+      const searchLower = keyword.toLowerCase().trim();
+      for (let i = 0; i < rows.length; i++) {
+        const name = String(rows[i][2] || "").trim();
+        if (name && name.toLowerCase().includes(searchLower)) {
+          rowIndex = i + 1;
+          currentD = String(rows[i][3] || "").trim();
+          matchedName = name;
+          break;
+        }
+      }
+    }
+
+    if (rowIndex < 0) {
+      return { ok: false, error: `「${keyword}」に一致する商品が見つかりません。スプレッドシートに直接登録してください。` };
     }
 
     // D列に登録するのはkeyword（品番）
