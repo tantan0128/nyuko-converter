@@ -51,6 +51,8 @@ export const gmailJobs = mysqlTable("gmail_jobs", {
   rowCount: int("rowCount").default(0).notNull(),
   notFoundCount: int("notFoundCount").default(0).notNull(),
   csvContent: text("csvContent"),
+  notFoundContent: text("notFoundContent"),
+  supplier: varchar("supplier", { length: 128 }),
   status: varchar("status", { length: 32 }).default("done").notNull(),
 });
 

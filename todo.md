@@ -112,3 +112,9 @@
 - [x] storageProxy.tsのTypeScriptエラー修正
 - [x] CSVファイル名を「助ネコ在庫up{仕入先名}{MMDD}.csv」形式に統一（GmailJobs.tsx）
 - [x] 全テスト30件パス確認
+
+## GmailジョブUI改善（2026-07-23）
+- [x] DBスキーマにnotFoundContent（未登録商品JSON）とsupplier（仕入れ元名）カラムを追加
+- [x] gmailScheduler.tsでnotFoundContent・supplierをDBに保存するよう更新
+- [x] GmailJobs.tsxにsupplier（仕入れ元名）バッジをファイル名横に表示
+- [x] GmailJobs.tsxに未登録商品詳細モーダルを追加（「未登録 N件」ボタンで表示）

@@ -4,7 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Mail, RefreshCw, Download, CheckCircle, AlertCircle, Loader2, ExternalLink } from "lucide-react";
+import { ArrowLeft, Mail, RefreshCw, Download, CheckCircle, AlertCircle, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
+
+interface NotFoundItem {
+  label: string;
+  quantity: number;
+}
 
 interface GmailJob {
   id: number;
@@ -16,8 +21,9 @@ interface GmailJob {
   rowCount: number;
   notFoundCount: number;
   csvContent: string | null;
+  notFoundContent: string | null;
+  supplier: string | null;
   status: string;
-  supplier?: string | null;
 }
 
 interface GmailStatus {
@@ -32,6 +38,7 @@ export default function GmailJobs() {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [statusLoading, setStatusLoading] = useState(true);
+  const [notFoundModal, setNotFoundModal] = useState<{ open: boolean; job: GmailJob | null }>({ open: false, job: null });
 
   useEffect(() => {
     checkStatus();
@@ -93,12 +100,25 @@ export default function GmailJobs() {
     const a = document.createElement("a");
     const d = new Date(job.processedAt);
     const mmdd = `${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-    // subjectや仕入先名からベンダー名を推定（メール件名に含まれることが多い）
     const supplierPart = job.supplier || "";
     a.href = url;
     a.download = `助ネコ在庫up${supplierPart}${mmdd}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function parseNotFound(job: GmailJob): NotFoundItem[] {
+    if (!job.notFoundContent) return [];
+    try {
+      const parsed = JSON.parse(job.notFoundContent);
+      // 旧形式（文字列配列）への後方互換
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "string") {
+        return parsed.map((label: string) => ({ label, quantity: 0 }));
+      }
+      return parsed as NotFoundItem[];
+    } catch {
+      return [];
+    }
   }
 
   return (
@@ -226,10 +246,16 @@ export default function GmailJobs() {
                     className="flex items-center justify-between p-3 bg-white border rounded-lg hover:bg-gray-50"
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-sm text-gray-800 truncate">
+                      {/* ファイル名 + 仕入れ元名 + ステータス */}
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="font-medium text-sm text-gray-800 truncate max-w-xs">
                           {job.filename}
                         </span>
+                        {job.supplier && (
+                          <Badge variant="secondary" className="text-xs shrink-0 bg-blue-100 text-blue-700 border-blue-200">
+                            {job.supplier}
+                          </Badge>
+                        )}
                         <Badge
                           variant={job.status === "done" ? "default" : "destructive"}
                           className="text-xs shrink-0"
@@ -237,8 +263,8 @@ export default function GmailJobs() {
                           {job.status === "done" ? "完了" : job.status}
                         </Badge>
                       </div>
+                      {/* 処理日時・件数 */}
                       <div className="text-xs text-gray-500 space-y-0.5">
-                        <div>差出人: {job.fromEmail}</div>
                         <div>
                           処理日時: {new Date(job.processedAt).toLocaleString("ja-JP")}
                           &nbsp;｜&nbsp;
@@ -249,16 +275,29 @@ export default function GmailJobs() {
                         </div>
                       </div>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => downloadCsv(job)}
-                      disabled={!job.csvContent}
-                      className="ml-3 shrink-0"
-                    >
-                      <Download className="w-4 h-4 mr-1" />
-                      CSV
-                    </Button>
+                    {/* ボタン群 */}
+                    <div className="flex items-center gap-2 ml-3 shrink-0">
+                      {job.notFoundCount > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setNotFoundModal({ open: true, job })}
+                          className="border-amber-400 text-amber-600 hover:bg-amber-50"
+                        >
+                          <AlertTriangle className="w-4 h-4 mr-1" />
+                          未登録 {job.notFoundCount}件
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => downloadCsv(job)}
+                        disabled={!job.csvContent}
+                      >
+                        <Download className="w-4 h-4 mr-1" />
+                        CSV
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -266,6 +305,86 @@ export default function GmailJobs() {
           </CardContent>
         </Card>
       </div>
+
+      {/* 未登録商品詳細モーダル */}
+      {notFoundModal.open && notFoundModal.job && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setNotFoundModal({ open: false, job: null })}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* モーダルヘッダー */}
+            <div className="flex items-center justify-between p-4 border-b">
+              <div>
+                <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-amber-500" />
+                  未登録商品の詳細
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5 truncate max-w-xs">
+                  {notFoundModal.job.supplier && (
+                    <span className="text-blue-600 font-medium mr-1">[{notFoundModal.job.supplier}]</span>
+                  )}
+                  {notFoundModal.job.filename}
+                </p>
+              </div>
+              <button
+                onClick={() => setNotFoundModal({ open: false, job: null })}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* 未登録リスト */}
+            <div className="overflow-y-auto flex-1 p-4">
+              {(() => {
+                const items = parseNotFound(notFoundModal.job);
+                if (items.length === 0) {
+                  return (
+                    <p className="text-sm text-gray-400 text-center py-4">
+                      詳細データがありません（旧バージョンで処理されたジョブ）
+                    </p>
+                  );
+                }
+                return (
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-500 mb-3">
+                      以下の商品は照合できませんでした。スプレッドシートのD列にキーワードを登録すると次回から自動照合されます。
+                    </p>
+                    {items.map((item, i) => (
+                      <div key={i} className="flex items-start gap-2 p-2 bg-amber-50 border border-amber-100 rounded">
+                        <span className="w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
+                          {i + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-800 break-all">{item.label}</p>
+                          {item.quantity > 0 && (
+                            <p className="text-xs text-gray-500">数量: {item.quantity}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* モーダルフッター */}
+            <div className="p-4 border-t">
+              <Button
+                className="w-full"
+                variant="outline"
+                onClick={() => setNotFoundModal({ open: false, job: null })}
+              >
+                閉じる
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

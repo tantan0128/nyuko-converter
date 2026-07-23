@@ -162,7 +162,7 @@ export async function processGmailPdfs(): Promise<{
 
       const dateStr = extracted.date || formatDate(new Date());
       const rows: Array<{ code: string; stockType: string; quantity: number; date: string; time: string; note: string }> = [];
-      const notFoundItems: string[] = [];
+      const notFoundItems: Array<{ label: string; quantity: number }> = [];
 
       for (const item of extracted.items) {
         if (item.quantity <= 0) continue;
@@ -204,7 +204,7 @@ export async function processGmailPdfs(): Promise<{
             : item.productName
               ? `${item.productName}${item.supplierCode ? ` [品番:${item.supplierCode}]` : ""}`
               : "不明";
-          notFoundItems.push(label);
+          notFoundItems.push({ label, quantity: item.quantity });
         }
       }
 
@@ -225,6 +225,8 @@ export async function processGmailPdfs(): Promise<{
           rowCount: mergedRows.length,
           notFoundCount: notFoundItems.length,
           csvContent,
+          notFoundContent: notFoundItems.length > 0 ? JSON.stringify(notFoundItems) : null,
+          supplier: extracted.supplier || null,
           status: "done",
         });
       }
