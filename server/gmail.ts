@@ -178,6 +178,7 @@ async function getOrCreateLabel(gmail: any, labelName: string): Promise<string> 
 }
 
 /** Gmail接続テスト */
+// Gmail Refresh Token renewed 2026-07-23
 export async function testGmailConnection(): Promise<{ ok: boolean; email?: string; error?: string }> {
   try {
     const gmail = getGmailClient();
