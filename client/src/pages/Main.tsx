@@ -6,7 +6,8 @@ import { Link } from "wouter";
 type ProcessMode =
   | "jan_jpg"
   | "jan_pdf"
-  | "name_pdf";
+  | "name_pdf"
+  | "junidou_csv";
 
 interface ProcessModeConfig {
   id: ProcessMode;
@@ -19,6 +20,7 @@ const MODES: ProcessModeConfig[] = [
   { id: "jan_jpg", label: "JAN読み取りJPG", accept: "image/jpeg,image/jpg,image/png,image/webp", description: "JPG画像からJANコードを読み取り" },
   { id: "jan_pdf", label: "JAN読み取りPDF", accept: "application/pdf", description: "PDFからJANコードを読み取り" },
   { id: "name_pdf", label: "商品名・商品コード読み取りPDF", accept: "application/pdf,image/jpeg,image/jpg,image/png,image/webp", description: "PDF/画像から商品名・商品コードで照合" },
+  { id: "junidou_csv", label: "十二堂CSV変換", accept: ".csv,text/csv", description: "十二堂CSVを助ネコ在庫CSV形式に変換" },
 ];
 
 interface ResultRow {
@@ -42,6 +44,15 @@ interface ProcessResult {
   errors: string[];
   logs: string[];
   supplier?: string;
+}
+
+interface JunidouResult {
+  ok: boolean;
+  csvContent?: string;
+  rowCount?: number;
+  notFound?: string[];
+  notFoundCount?: number;
+  error?: string;
 }
 
 interface KeywordModalState {
@@ -76,6 +87,7 @@ export default function Main() {
   const [dragging, setDragging] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<ProcessResult | null>(null);
+  const [junidouResult, setJunidouResult] = useState<JunidouResult | null>(null);
   const [showLogs, setShowLogs] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -87,6 +99,7 @@ export default function Main() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentMode = MODES.find((m) => m.id === mode)!;
+  const isJunidouMode = mode === "junidou_csv";
 
   // 同期状況を取得
   const fetchSyncStatus = useCallback(async () => {
@@ -145,29 +158,51 @@ export default function Main() {
     }
     setProcessing(true);
     setResult(null);
+    setJunidouResult(null);
 
     try {
-      const formData = new FormData();
-      formData.append("mode", mode);
-      files.forEach((f) => formData.append("files", f));
-
-      const res = await fetch("/api/process", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "処理に失敗しました" }));
-        throw new Error(err.error || "処理に失敗しました");
-      }
-
-      const data: ProcessResult = await res.json();
-      setResult(data);
-
-      if (data.rows.length > 0) {
-        toast.success(`${data.rows.length}件の変換が完了しました`);
+      if (isJunidouMode) {
+        // 十二堂CSVモード
+        const formData = new FormData();
+        formData.append("file", files[0]);
+        const res = await fetch("/api/process-junidou-csv", {
+          method: "POST",
+          body: formData,
+        });
+        const data: JunidouResult = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "処理に失敗しました");
+        }
+        setJunidouResult(data);
+        if ((data.rowCount ?? 0) > 0) {
+          toast.success(`${data.rowCount}件の変換が完了しました`);
+        } else {
+          toast.warning("変換できるデータがありませんでした");
+        }
       } else {
-        toast.warning("変換できるデータがありませんでした");
+        // 通常モード
+        const formData = new FormData();
+        formData.append("mode", mode);
+        files.forEach((f) => formData.append("files", f));
+
+        const res = await fetch("/api/process", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "処理に失敗しました" }));
+          throw new Error(err.error || "処理に失敗しました");
+        }
+
+        const data: ProcessResult = await res.json();
+        setResult(data);
+
+        if (data.rows.length > 0) {
+          toast.success(`${data.rows.length}件の変換が完了しました`);
+        } else {
+          toast.warning("変換できるデータがありませんでした");
+        }
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "処理に失敗しました";
@@ -271,11 +306,27 @@ export default function Main() {
     URL.revokeObjectURL(url);
   };
 
+  const handleJunidouDownload = () => {
+    if (!junidouResult?.csvContent) return;
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + junidouResult.csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const now = new Date();
+    const mmdd = `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    a.download = `助ネコ在庫up十二堂${mmdd}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const formatSyncDate = (iso: string | null) => {
     if (!iso) return "未同期";
     const d = new Date(iso);
     return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   };
+
+  const hasResult = result !== null || junidouResult !== null;
 
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif" }}>
@@ -371,7 +422,7 @@ export default function Main() {
                 {MODES.map((m) => (
                   <button
                     key={m.id}
-                    onClick={() => { setMode(m.id); setFiles([]); setResult(null); }}
+                    onClick={() => { setMode(m.id); setFiles([]); setResult(null); setJunidouResult(null); }}
                     className={`w-full text-left px-4 py-3 text-base font-medium border-b border-black/10 transition-colors ${
                       mode === m.id
                         ? "bg-black text-white"
@@ -382,6 +433,9 @@ export default function Main() {
                       {String(MODES.indexOf(m) + 1).padStart(2, "0")}
                     </span>
                     {m.label}
+                    {m.id === "junidou_csv" && (
+                      <span className="ml-2 text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">NEW</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -391,6 +445,12 @@ export default function Main() {
             <div className="mb-6">
               <p className="text-base font-black text-black mb-3">ファイル選択</p>
               <div className="h-px bg-black mb-4" />
+              {isJunidouMode && (
+                <div className="mb-3 bg-green-50 border border-green-200 rounded p-3 text-xs text-green-700">
+                  <strong>十二堂CSVモード：</strong>Shift-JIS形式のCSVファイルを選択してください。
+                  列1=自社商品コード、列2=在庫数、列3=出荷日
+                </div>
+              )}
               <div
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
                 onDragLeave={() => setDragging(false)}
@@ -407,7 +467,7 @@ export default function Main() {
               <input
                 ref={fileInputRef}
                 type="file"
-                multiple
+                multiple={!isJunidouMode}
                 accept={currentMode.accept}
                 onChange={handleFileChange}
                 className="hidden"
@@ -449,22 +509,22 @@ export default function Main() {
                   処理中...
                 </span>
               ) : (
-                "変換・処理実行"
+                isJunidouMode ? "十二堂CSV変換・処理実行" : "変換・処理実行"
               )}
             </button>
           </div>
 
           {/* Right column: Results */}
-          <div className={`lg:pl-8 mt-8 lg:mt-0 ${result ? 'lg:col-span-8' : 'lg:col-span-4'}`}>
+          <div className={`lg:pl-8 mt-8 lg:mt-0 ${hasResult ? 'lg:col-span-8' : 'lg:col-span-4'}`}>
             <div className="mb-4">
               <p className="text-base font-black text-black mb-3">処理結果</p>
               <div className="h-px bg-black" />
             </div>
 
-            {!result && !processing && (
+            {!hasResult && !processing && (
               <div className="flex flex-col items-center justify-center py-4 text-center border border-dashed border-black/20 mt-2">
                 <p className="text-xs font-bold text-gray-400">変換実行すると結果が表示されます</p>
-                {syncStatus && syncStatus.count === 0 && (
+                {syncStatus && syncStatus.count === 0 && !isJunidouMode && (
                   <p className="text-xs text-[oklch(0.48_0.22_27)] mt-2 font-bold">
                     ⚠ 商品マスター未同期
                   </p>
@@ -479,6 +539,59 @@ export default function Main() {
               </div>
             )}
 
+            {/* 十二堂CSV結果 */}
+            {junidouResult && (
+              <div className="space-y-6">
+                {/* Stats */}
+                <div className="grid grid-cols-2 gap-0 border border-black">
+                  <div className="p-4 border-r border-black">
+                    <p className="text-sm font-bold text-gray-600 mb-1">変換成功</p>
+                    <p className="text-3xl font-black text-black">{junidouResult.rowCount ?? 0}</p>
+                    <p className="text-xs text-gray-400">件</p>
+                  </div>
+                  <div className="p-4">
+                    <p className="text-sm font-bold text-gray-600 mb-1">未登録コード</p>
+                    <p className={`text-3xl font-black ${(junidouResult.notFoundCount ?? 0) > 0 ? "text-[oklch(0.48_0.22_27)]" : "text-black"}`}>
+                      {junidouResult.notFoundCount ?? 0}
+                    </p>
+                    <p className="text-xs text-gray-400">件</p>
+                  </div>
+                </div>
+
+                {/* Download button */}
+                {(junidouResult.rowCount ?? 0) > 0 && (
+                  <button
+                    onClick={handleJunidouDownload}
+                    className="w-full border-2 border-black py-3 text-sm font-black hover:bg-black hover:text-white transition-colors"
+                  >
+                    CSVダウンロード（{junidouResult.rowCount}件）— 助ネコ在庫up十二堂
+                  </button>
+                )}
+
+                {/* 未登録コード */}
+                {(junidouResult.notFoundCount ?? 0) > 0 && (
+                  <div>
+                    <p className="text-xs font-bold tracking-[0.15em] uppercase text-[oklch(0.48_0.22_27)] mb-2">
+                      未登録コード ({junidouResult.notFoundCount}件)
+                    </p>
+                    <div className="h-px bg-[oklch(0.48_0.22_27)] mb-3" />
+                    <p className="text-xs text-gray-400 mb-3">
+                      以下の十二堂コードはスプレッドシートの「十二堂商品リスト」に登録されていません
+                    </p>
+                    <div className="space-y-1">
+                      {junidouResult.notFound?.map((code, i) => (
+                        <div key={i} className="flex items-center gap-2 py-1.5 border-b border-black/10">
+                          <span className="w-4 h-4 bg-[oklch(0.48_0.22_27)] flex-shrink-0" />
+                          <span className="text-xs text-gray-700 font-mono">{code}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 通常モード結果 */}
             {result && (
               <div className="space-y-6">
                 {/* Stats */}

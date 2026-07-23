@@ -251,9 +251,13 @@ export async function appendDeliveryKeyword(
   }
 }
 
-/** 商品名でスプレッドシートを検索し、一致行のD列にキーワードを追記する */
+/** 商品名でスプレッドシートを検索し、一致行のD列にキーワードを追記する
+ * @param keyword D列に登録するキーワード（品番など）
+ * @param productName C列の商品名で検索するための名前（省略時はkeywordで検索）
+ */
 export async function appendKeywordByName(
-  keyword: string
+  keyword: string,
+  productName?: string
 ): Promise<{ ok: boolean; error?: string; matched?: string }> {
   const spreadsheetId = process.env.SPREADSHEET_ID;
   if (!spreadsheetId) return { ok: false, error: "SPREADSHEET_ID が設定されていません" };
@@ -269,14 +273,16 @@ export async function appendKeywordByName(
 
     const rows = response.data.values || [];
     // 商品名（C列）で部分一致検索
+    // productNameが指定されていればそれで検索、なければkeywordで検索
+    const searchTerm = productName || keyword;
     let rowIndex = -1;
     let currentD = "";
     let matchedName = "";
 
-    const kwLower = keyword.toLowerCase();
+    const searchLower = searchTerm.toLowerCase();
     for (let i = 0; i < rows.length; i++) {
       const name = String(rows[i][2] || "").trim();
-      if (name && name.toLowerCase().includes(kwLower)) {
+      if (name && name.toLowerCase().includes(searchLower)) {
         rowIndex = i + 1;
         currentD = String(rows[i][3] || "").trim();
         matchedName = name;
@@ -285,9 +291,10 @@ export async function appendKeywordByName(
     }
 
     if (rowIndex < 0) {
-      return { ok: false, error: `「${keyword}」に一致する商品が見つかりません。スプレッドシートに直接登録してください。` };
+      return { ok: false, error: `「${searchTerm}」に一致する商品が見つかりません。スプレッドシートに直接登録してください。` };
     }
 
+    // D列に登録するのはkeyword（品番）
     const existing = currentD.split(",").map((k) => k.trim()).filter(Boolean);
     const newKeywords = keyword.split(",").map((k) => k.trim()).filter(Boolean);
     const seen = new Set<string>();
@@ -516,4 +523,39 @@ export function matchByName(
   }
 
   return bestScore >= 2 ? bestCode : null;
+}
+
+/** 十二堂商品リストのレコード型 */
+export interface JunidouRecord {
+  junidouCode: string; // A列: 十二堂コード
+  sukenekoCde: string; // B列: 助ネコ商品コード
+  name: string;        // C列: 商品名
+}
+
+/** スプレッドシートから十二堂商品リストを取得 */
+export async function fetchJunidouList(): Promise<JunidouRecord[]> {
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  if (!spreadsheetId) throw new Error("SPREADSHEET_ID が設定されていません");
+
+  const auth = getAuthClient(true);
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: "十二堂商品リスト!A:C",
+  });
+
+  const rows = response.data.values || [];
+  const result: JunidouRecord[] = [];
+
+  for (const row of rows) {
+    const junidouCode = String(row[0] || "").trim();
+    const sukenekoCde = String(row[1] || "").trim();
+    const name = String(row[2] || "").trim();
+    if (junidouCode && sukenekoCde) {
+      result.push({ junidouCode, sukenekoCde, name });
+    }
+  }
+
+  return result;
 }

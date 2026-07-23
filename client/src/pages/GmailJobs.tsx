@@ -46,14 +46,21 @@ export default function GmailJobs() {
   async function registerKeyword(label: string, idx: number) {
     setRegisteringIdx(idx);
     try {
+      // labelから商品名と品番を分離
+      // 例: "こどものせんす まるいっぱい [品番:3066337698]" → productName="こどものせんす まるいっぱい", supplierCode="3066337698"
+      const supplierCodeMatch = label.match(/\[品番:([^\]]+)\]/);
+      const supplierCode = supplierCodeMatch ? supplierCodeMatch[1].trim() : null;
+      const productName = label.replace(/\s*\[品番:[^\]]+\]/, "").trim();
+      // D列に登録する内容: 品番があれば品番を優先、なければ商品名
+      const keywordToRegister = supplierCode || productName;
       const res = await fetch("/api/register-keyword", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: label }),
+        body: JSON.stringify({ keyword: keywordToRegister, productName }),
       });
       const data = await res.json();
       if (data.ok) {
-        toast.success(`「${label}」をD列に登録しました`);
+        toast.success(`「${keywordToRegister}」をD列に登録しました`);
         setRegisteredIdxs(prev => new Set(Array.from(prev).concat(idx)));
       } else {
         toast.error(`登録失敗: ${data.error || "不明なエラー"}`);

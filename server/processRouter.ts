@@ -1,7 +1,8 @@
 import express from "express";
 import multer from "multer";
+import iconv from "iconv-lite";
 import { ocrWithDocumentAI, extractWithGemini } from "./ocr";
-import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, appendKeywordByName } from "./sheets";
+import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, appendKeywordByName, fetchJunidouList } from "./sheets";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -211,21 +212,158 @@ function formatDate(d: Date): string {
 }
 
 /** 未登録商品のキーワード登録（その場登録）
- * keywordのみ指定し、商品名でスプレッドシートを検索してD列に追記する */
+ * keyword: D列に登録する品番など
+ * productName: C列の商品名で検索するための名前（省略時はkeywordで検索） */
 router.post("/register-keyword", express.json(), async (req, res) => {
   try {
-    const { keyword } = req.body as { keyword?: string };
+    const { keyword, productName } = req.body as { keyword?: string; productName?: string };
     if (!keyword || !keyword.trim()) {
       return res.status(400).json({ ok: false, error: "キーワードは必須です" });
     }
     const kw = keyword.trim();
-    // 商品名でスプレッドシートを検索し、一致行のD列にキーワードを追記
-    const result = await appendKeywordByName(kw);
+    const pn = productName?.trim() || undefined;
+    // productNameがあればそれでC列を検索し、keyword（品番）をD列に登録
+    const result = await appendKeywordByName(kw, pn);
     res.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     res.status(500).json({ ok: false, error: msg });
   }
 });
+
+/** 十二堂CSV変換エンドポイント
+ * Shift-JISのCSVを受け取り、十二堂商品リストで照合して助ネコ在庫CSV形式で出力 */
+router.post("/process-junidou-csv", upload.single("file"), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ ok: false, error: "CSVファイルが選択されていません" });
+    }
+
+    // Shift-JISデコード
+    const csvText = iconv.decode(file.buffer, "Shift_JIS");
+
+    // CSV行を解析
+    const lines = csvText.split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length === 0) {
+      return res.status(400).json({ ok: false, error: "CSVが空です" });
+    }
+
+    // 十二堂商品リストを取得
+    const junidouList = await fetchJunidouList();
+    const codeMap = new Map<string, string>();
+    for (const item of junidouList) {
+      codeMap.set(item.junidouCode.toLowerCase(), item.sukenekoCde);
+    }
+
+    const resultRows: Array<{ code: string; quantity: number; date: string; original: string }> = [];
+    const notFound: string[] = [];
+
+    for (const line of lines) {
+      // CSV列を解析（カンマ区切り、クォート対応）
+      const cols = parseCSVLine(line);
+      if (cols.length < 2) continue;
+
+      const junidouCode = cols[0].trim();
+      const quantityStr = cols[1].trim();
+      const dateStr = cols.length >= 3 ? cols[2].trim() : "";
+
+      if (!junidouCode) continue;
+
+      const quantity = parseInt(quantityStr, 10);
+      if (isNaN(quantity) || quantity <= 0) continue;
+
+      // 十二堂コード → 助ネココード照合
+      const sukenekoCde = codeMap.get(junidouCode.toLowerCase());
+      if (sukenekoCde) {
+        // 日付フォーマット変換（YYYY/MM/DD形式に統一）
+        const formattedDate = formatJunidouDate(dateStr);
+        resultRows.push({ code: sukenekoCde, quantity, date: formattedDate, original: junidouCode });
+      } else {
+        notFound.push(junidouCode);
+      }
+    }
+
+    // 同一コードの数量を合算
+    const mergedMap = new Map<string, { code: string; quantity: number; date: string }>();
+    for (const row of resultRows) {
+      const key = `${row.code}__${row.date}`;
+      if (mergedMap.has(key)) {
+        mergedMap.get(key)!.quantity += row.quantity;
+      } else {
+        mergedMap.set(key, { code: row.code, quantity: row.quantity, date: row.date });
+      }
+    }
+    const mergedRows = Array.from(mergedMap.values());
+
+    // 助ネコ在庫CSV形式で出力
+    const header = "自社商品コード,在庫指定,在庫数,入庫日,入庫時間,備考";
+    const csvLines = mergedRows.map((r) =>
+      [
+        `"${r.code}"`,
+        `"通常在庫"`,
+        `"${r.quantity}"`,
+        `"${r.date}"`,
+        `"00:00"`,
+        `"十二堂"`,
+      ].join(",")
+    );
+    const csvContent = [header, ...csvLines].join("\r\n");
+
+    res.json({
+      ok: true,
+      csvContent,
+      rowCount: mergedRows.length,
+      notFound,
+      notFoundCount: notFound.length,
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ ok: false, error: msg });
+  }
+});
+
+/** CSV行を解析（ダブルクォート対応） */
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuote = !inQuote;
+      }
+    } else if (ch === ',' && !inQuote) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+/** 十二堂CSVの日付をYYYY/MM/DD形式に変換 */
+function formatJunidouDate(dateStr: string): string {
+  if (!dateStr) {
+    const now = new Date();
+    return `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}`;
+  }
+  // YYYYMMDD → YYYY/MM/DD
+  const m8 = dateStr.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m8) return `${m8[1]}/${m8[2]}/${m8[3]}`;
+  // YYYY-MM-DD → YYYY/MM/DD
+  const mDash = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (mDash) return `${mDash[1]}/${mDash[2]}/${mDash[3]}`;
+  // YYYY/MM/DD はそのまま
+  if (/^\d{4}\/\d{2}\/\d{2}$/.test(dateStr)) return dateStr;
+  // その他はそのまま返す
+  return dateStr;
+}
 
 export default router;
