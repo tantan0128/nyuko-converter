@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
 import { ocrWithDocumentAI, extractWithGemini } from "./ocr";
-import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword } from "./sheets";
+import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, appendKeywordByName } from "./sheets";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -209,5 +209,23 @@ function buildRow(code: string, quantity: number, date: string) {
 function formatDate(d: Date): string {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 }
+
+/** 未登録商品のキーワード登録（その場登録）
+ * keywordのみ指定し、商品名でスプレッドシートを検索してD列に追記する */
+router.post("/register-keyword", express.json(), async (req, res) => {
+  try {
+    const { keyword } = req.body as { keyword?: string };
+    if (!keyword || !keyword.trim()) {
+      return res.status(400).json({ ok: false, error: "キーワードは必須です" });
+    }
+    const kw = keyword.trim();
+    // 商品名でスプレッドシートを検索し、一致行のD列にキーワードを追記
+    const result = await appendKeywordByName(kw);
+    res.json(result);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ ok: false, error: msg });
+  }
+});
 
 export default router;

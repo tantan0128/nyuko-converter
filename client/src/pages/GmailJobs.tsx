@@ -40,6 +40,30 @@ export default function GmailJobs() {
   const [fetching, setFetching] = useState(false);
   const [statusLoading, setStatusLoading] = useState(true);
   const [notFoundModal, setNotFoundModal] = useState<{ open: boolean; job: GmailJob | null }>({ open: false, job: null });
+  const [registeringIdx, setRegisteringIdx] = useState<number | null>(null);
+  const [registeredIdxs, setRegisteredIdxs] = useState<Set<number>>(new Set());
+
+  async function registerKeyword(label: string, idx: number) {
+    setRegisteringIdx(idx);
+    try {
+      const res = await fetch("/api/register-keyword", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: label }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success(`「${label}」をD列に登録しました`);
+        setRegisteredIdxs(prev => new Set(Array.from(prev).concat(idx)));
+      } else {
+        toast.error(`登録失敗: ${data.error || "不明なエラー"}`);
+      }
+    } catch {
+      toast.error("登録に失敗しました");
+    } finally {
+      setRegisteringIdx(null);
+    }
+  }
 
   useEffect(() => {
     checkStatus();
@@ -275,15 +299,14 @@ export default function GmailJobs() {
                         </Badge>
                       </div>
                       {/* 処理日時・件数 */}
-                      <div className="text-xs text-gray-500 space-y-0.5">
-                        <div>
-                          処理日時: {new Date(job.processedAt).toLocaleString("ja-JP")}
-                          &nbsp;｜&nbsp;
-                          変換成功: <span className="text-green-600 font-medium">{job.rowCount}件</span>
-                          {job.notFoundCount > 0 && (
-                            <>&nbsp;｜&nbsp;未登録: <span className="text-amber-600 font-medium">{job.notFoundCount}件</span></>
-                          )}
-                        </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        処理日時: {new Date(job.processedAt).toLocaleString("ja-JP")}
+                      </div>
+                      <div className="flex items-center gap-3 mt-2">
+                        <span className="text-lg font-black text-green-600">{job.rowCount}<span className="text-sm font-bold">件変換</span></span>
+                        {job.notFoundCount > 0 && (
+                          <span className="text-lg font-black text-amber-600">{job.notFoundCount}<span className="text-sm font-bold">件未登録</span></span>
+                        )}
                       </div>
                     </div>
                     {/* ボタン群 */}
@@ -377,6 +400,17 @@ export default function GmailJobs() {
                             <p className="text-xs text-gray-500">数量: {item.quantity}</p>
                           )}
                         </div>
+                        {registeredIdxs.has(i) ? (
+                          <span className="text-xs text-green-600 font-bold shrink-0">登録済</span>
+                        ) : (
+                          <button
+                            className="text-xs bg-amber-500 text-white px-2 py-1 rounded hover:bg-amber-600 disabled:opacity-50 shrink-0"
+                            disabled={registeringIdx === i}
+                            onClick={() => registerKeyword(item.label, i)}
+                          >
+                            {registeringIdx === i ? "登録中..." : "D列に登録"}
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>

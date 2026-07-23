@@ -251,6 +251,66 @@ export async function appendDeliveryKeyword(
   }
 }
 
+/** 商品名でスプレッドシートを検索し、一致行のD列にキーワードを追記する */
+export async function appendKeywordByName(
+  keyword: string
+): Promise<{ ok: boolean; error?: string; matched?: string }> {
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  if (!spreadsheetId) return { ok: false, error: "SPREADSHEET_ID が設定されていません" };
+
+  try {
+    const auth = getAuthClient(false);
+    const sheets = google.sheets({ version: "v4", auth });
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "全商品取り扱いリスト!A:D",
+    });
+
+    const rows = response.data.values || [];
+    // 商品名（C列）で部分一致検索
+    let rowIndex = -1;
+    let currentD = "";
+    let matchedName = "";
+
+    const kwLower = keyword.toLowerCase();
+    for (let i = 0; i < rows.length; i++) {
+      const name = String(rows[i][2] || "").trim();
+      if (name && name.toLowerCase().includes(kwLower)) {
+        rowIndex = i + 1;
+        currentD = String(rows[i][3] || "").trim();
+        matchedName = name;
+        break;
+      }
+    }
+
+    if (rowIndex < 0) {
+      return { ok: false, error: `「${keyword}」に一致する商品が見つかりません。スプレッドシートに直接登録してください。` };
+    }
+
+    const existing = currentD.split(",").map((k) => k.trim()).filter(Boolean);
+    const newKeywords = keyword.split(",").map((k) => k.trim()).filter(Boolean);
+    const seen = new Set<string>();
+    const merged = [...existing, ...newKeywords].filter((k) => {
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    }).join(",");
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `全商品取り扱いリスト!D${rowIndex}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[merged]] },
+    });
+
+    return { ok: true, matched: matchedName };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
 /** DBに商品マスターを同期保存 */
 export async function syncProductsToDB(records: ProductRecord[]): Promise<number> {
   const db = await getDb();

@@ -455,20 +455,18 @@ export default function Main() {
           </div>
 
           {/* Right column: Results */}
-          <div className="lg:col-span-8 lg:pl-8 mt-8 lg:mt-0">
+          <div className={`lg:pl-8 mt-8 lg:mt-0 ${result ? 'lg:col-span-8' : 'lg:col-span-4'}`}>
             <div className="mb-4">
               <p className="text-base font-black text-black mb-3">処理結果</p>
               <div className="h-px bg-black" />
             </div>
 
             {!result && !processing && (
-              <div className="flex flex-col items-center justify-center py-8 text-center border border-dashed border-black/20 mt-4">
-                <p className="text-xs font-bold text-gray-400">
-                  ファイルを選択して左の「変換・処理実行」を押すと結果が表示されます
-                </p>
+              <div className="flex flex-col items-center justify-center py-4 text-center border border-dashed border-black/20 mt-2">
+                <p className="text-xs font-bold text-gray-400">変換実行すると結果が表示されます</p>
                 {syncStatus && syncStatus.count === 0 && (
-                  <p className="text-xs text-[oklch(0.48_0.22_27)] mt-3 font-bold">
-                    ⚠ 商品マスターが未同期です。先に「スプレッドシートから同期」を実行してください。
+                  <p className="text-xs text-[oklch(0.48_0.22_27)] mt-2 font-bold">
+                    ⚠ 商品マスター未同期
                   </p>
                 )}
               </div>
@@ -477,7 +475,7 @@ export default function Main() {
             {processing && (
               <div className="flex flex-col items-center justify-center py-24">
                 <div className="w-8 h-8 border-2 border-black border-t-[oklch(0.48_0.22_27)] animate-spin mb-4 rounded-full" />
-                <p className="text-xs font-bold tracking-widest uppercase text-gray-400">処理中...</p>
+                <p className="text-xs font-bold text-gray-400">処理中...</p>
               </div>
             )}
 
@@ -486,19 +484,19 @@ export default function Main() {
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-0 border border-black">
                   <div className="p-4 border-r border-black">
-                    <p className="text-xs font-bold tracking-widest uppercase text-gray-400 mb-1">変換成功</p>
+                    <p className="text-sm font-bold text-gray-600 mb-1">変換成功</p>
                     <p className="text-3xl font-black text-black">{result.rows.length}</p>
                     <p className="text-xs text-gray-400">件</p>
                   </div>
                   <div className="p-4 border-r border-black">
-                    <p className="text-xs font-bold tracking-widest uppercase text-gray-400 mb-1">未登録</p>
+                    <p className="text-sm font-bold text-gray-600 mb-1">未登録</p>
                     <p className={`text-3xl font-black ${result.notFound.length > 0 ? "text-[oklch(0.48_0.22_27)]" : "text-black"}`}>
                       {result.notFound.length}
                     </p>
                     <p className="text-xs text-gray-400">件</p>
                   </div>
                   <div className="p-4">
-                    <p className="text-xs font-bold tracking-widest uppercase text-gray-400 mb-1">エラー</p>
+                    <p className="text-sm font-bold text-gray-600 mb-1">エラー</p>
                     <p className={`text-3xl font-black ${result.errors.length > 0 ? "text-[oklch(0.48_0.22_27)]" : "text-black"}`}>
                       {result.errors.length}
                     </p>
@@ -510,7 +508,7 @@ export default function Main() {
                 {result.rows.length > 0 && (
                   <button
                     onClick={handleDownload}
-                    className="w-full border-2 border-black py-3 text-sm font-black tracking-[0.1em] uppercase hover:bg-black hover:text-white transition-colors"
+                    className="w-full border-2 border-black py-3 text-sm font-black hover:bg-black hover:text-white transition-colors"
                   >
                     CSVダウンロード（{result.rows.length}件）
                   </button>
@@ -525,12 +523,12 @@ export default function Main() {
                       <table className="w-full text-xs border-collapse">
                         <thead>
                           <tr className="bg-black text-white">
-                            <th className="px-3 py-2 text-left font-bold tracking-wider uppercase">自社商品コード</th>
-                            <th className="px-3 py-2 text-left font-bold tracking-wider uppercase">在庫指定</th>
-                            <th className="px-3 py-2 text-right font-bold tracking-wider uppercase">在庫数</th>
-                            <th className="px-3 py-2 text-left font-bold tracking-wider uppercase">入庫日</th>
-                            <th className="px-3 py-2 text-left font-bold tracking-wider uppercase">入庫時間</th>
-                            <th className="px-3 py-2 text-left font-bold tracking-wider uppercase">備考</th>
+                            <th className="px-3 py-2 text-left font-bold">自社商品コード</th>
+                            <th className="px-3 py-2 text-left font-bold">在庫指定</th>
+                            <th className="px-3 py-2 text-right font-bold">在庫数</th>
+                            <th className="px-3 py-2 text-left font-bold">入庫日</th>
+                            <th className="px-3 py-2 text-left font-bold">入庫時間</th>
+                            <th className="px-3 py-2 text-left font-bold">備考</th>
                           </tr>
                         </thead>
                         <tbody>
