@@ -81,23 +81,18 @@ async function processImageOrPDF(
   logs: string[]
 ): Promise<string | undefined> {
   const mimeType = file.mimetype;
-  let ocrText = "";
-  let imageBase64: string | undefined;
-  let imageMimeType: string | undefined;
 
-  // Try Document AI OCR first
-  const ocrResult = await ocrWithDocumentAI(file.buffer, mimeType);
-  if (ocrResult.error) {
-    logs.push(`Document AI: ${ocrResult.error} → Gemini画像直接処理に切り替え`);
-    imageBase64 = file.buffer.toString("base64");
-    imageMimeType = mimeType;
-  } else {
-    ocrText = ocrResult.text;
-    logs.push(`OCR完了: ${ocrText.length}文字抽出`);
-  }
+  logs.push(`Gemini直接処理: ${file.originalname} (${mimeType})`);
 
-  // Extract with Gemini
-  const extracted = await extractWithGemini(mode, ocrText, imageBase64, imageMimeType);
+  // Geminiにファイルを直接渡す（PDFはfile_url、画像はimage_url）
+  const extracted = await extractWithGemini(
+    mode,
+    "", // ocrText不使用
+    undefined,
+    undefined,
+    file.buffer,
+    mimeType
+  );
   if (extracted.error) {
     errors.push(`${file.originalname}: ${extracted.error}`);
     logs.push(`Gemini抽出エラー: ${extracted.error}`);

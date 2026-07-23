@@ -1,114 +1,110 @@
-import { DocumentProcessorServiceClient } from "@google-cloud/documentai";
 import { invokeLLM } from "./_core/llm";
-
-interface OcrResult {
-  text: string;
-  error?: string;
-}
-
-function getDocumentAIClient() {
-  const credJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!credJson) {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON が設定されていません");
-  }
-  const credentials = JSON.parse(credJson);
-  return new DocumentProcessorServiceClient({ credentials });
-}
-
-export async function ocrWithDocumentAI(
-  fileBuffer: Buffer,
-  mimeType: string
-): Promise<OcrResult> {
-  const processorId = process.env.DOCUMENT_AI_PROCESSOR_ID;
-  const projectId = process.env.DOCUMENT_AI_PROJECT_ID;
-  const location = process.env.DOCUMENT_AI_LOCATION || "us";
-
-  if (!processorId || !projectId) {
-    // Fallback: use Gemini vision directly
-    return { text: "", error: "Document AI未設定 - Gemini直接処理を使用" };
-  }
-
-  try {
-    const client = getDocumentAIClient();
-    const name = `projects/${projectId}/locations/${location}/processors/${processorId}`;
-
-    const [result] = await client.processDocument({
-      name,
-      rawDocument: {
-        content: fileBuffer.toString("base64"),
-        mimeType,
-      },
-    });
-
-    const text = result.document?.text || "";
-    return { text };
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { text: "", error: `Document AI エラー: ${msg}` };
-  }
-}
+import { storagePut, storageGetSignedUrl } from "./storage";
 
 export interface ExtractedItem {
   jan?: string;
   productName?: string;
-  supplierCode?: string; // 仕入先品番コード
+  supplierCode?: string;
   quantity: number;
   date?: string;
 }
 
 export interface ExtractedData {
   date?: string;
-  supplier?: string; // 仕入先会社名
+  supplier?: string;
   items: ExtractedItem[];
   error?: string;
 }
 
-const GEMINI_SYSTEM_PROMPT = `あなたは日本の納品書・売上伝票のデータ抽出専門家です。
-与えられたテキストまたは画像から、以下の情報を正確に抽出してください。
+const SYSTEM_PROMPT = `あなたは日本の納品書・売上伝票・出荷案内書のデータ抽出の専門家です。
+PDFまたは画像に含まれる全ての商品情報を漏れなく正確に抽出してください。
 
-抽出ルール：
-- 仕入先会社名：納品書の発行元会社名。主に右上または左上に記載されている「株式会社」「有限会社」「・・・社」「・・・コーポレーション」などの社名を抽出する。「株式会社」「有限会社」などの法人格は含めた完全な社名を返す。「納品先」「お届け先」「送り先」などの返送先ではなく、納品書を発行した会社名を返すこと。
-- JANコード：13桁の数字（バーコード番号）
-- 商品名：JANコードの隣にある商品の名称
-- 数量：出荷数・納品数・数量（欠品・返品は除外）
-- 日付：伝票の日付（YYYY/MM/DD形式）。現在は2026年です。年が不明な場合は2026年としてください。
-- 数量0の行は除外する
-- ページ端の記号（▶、→、►など）は無視して全行読み取る
-- 複数の伝票が含まれる場合は全て読み取る
-- 「運賃」「送料」「配送料」「送料込」「運送料」「宅配料」「手数料」「消費税」「税」「値引」「割引」「小計」「合計」「請求額」などの商品以外の行は除外する
+【抽出ルール】
+- 仕入先会社名：納品書の発行元（送り主）の会社名。右上・左上・ヘッダーに記載の「株式会社」「有限会社」等を含む正式名称。「納品先」「お届け先」は除外。
+- JANコード：13桁の数字のみ（バーコード番号）。12桁や8桁は除外。
+- 仕入先品番（supplierCode）：メーカー品番・商品コード・品番・型番・品目コード等。英数字混在が多い。JANコードとは別の項目。
+- 商品名：商品の名称。できるだけ完全な名称を抽出。
+- 数量：出荷数・納品数・数量の列の値。整数で返す。
+- 日付：伝票日付（YYYY/MM/DD形式）。年が不明な場合は2026年。
+
+【除外するもの】
+- 数量が0の行
+- 運賃・送料・配送料・手数料・消費税・税・値引・割引・小計・合計・請求額
+- ページ番号・備考・注意書き
+
+【重要な注意点】
+- 複数ページある場合は全ページを読み取る
+- 表の罫線をまたいでも全行を読み取る
+- 品番とJANコードは別フィールドに分けて抽出する
+- 同じ商品が複数行に分かれている場合は数量を合算せず別行として返す
+- ページ端の記号（▶→►等）は無視して全行読み取る
 
 必ずJSON形式で返してください。`;
 
+/**
+ * PDFまたは画像をGeminiに直接渡して商品情報を抽出する
+ * - PDFはS3にアップロードして署名付きURLを取得し file_url で渡す（最高精度）
+ * - 画像は image_url (base64) で渡す
+ * - モデルは gemini-3.1-pro-preview（最高精度）を使用
+ */
 export async function extractWithGemini(
   mode: string,
-  ocrText: string,
+  _ocrText: string,
   imageBase64?: string,
-  imageMimeType?: string
+  imageMimeType?: string,
+  fileBuffer?: Buffer,
+  fileMimeType?: string
 ): Promise<ExtractedData> {
-  const prompt = buildPrompt(mode, ocrText);
+  const prompt = buildPrompt(mode);
 
-  const messages: Array<{ role: "user" | "system"; content: unknown }> = [
-    { role: "system", content: GEMINI_SYSTEM_PROMPT },
-  ];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contentParts: any[] = [{ type: "text", text: prompt }];
 
-  if (imageBase64 && imageMimeType) {
-    messages.push({
-      role: "user",
-      content: [
-        { type: "text", text: prompt },
-        {
-          type: "image_url",
-          image_url: { url: `data:${imageMimeType};base64,${imageBase64}`, detail: "high" },
-        },
-      ],
+  const isPdf = fileMimeType === "application/pdf" || imageMimeType === "application/pdf";
+
+  if (fileBuffer && isPdf) {
+    // PDFはS3にアップロードして署名付きURLを取得し file_url で渡す
+    try {
+      const key = `ocr-tmp/${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`;
+      await storagePut(key, fileBuffer, "application/pdf");
+      const signedUrl = await storageGetSignedUrl(key);
+      contentParts.push({
+        type: "file_url",
+        file_url: { url: signedUrl, mime_type: "application/pdf" },
+      });
+    } catch (_uploadErr) {
+      // アップロード失敗時は base64 image にフォールバック
+      const b64 = fileBuffer.toString("base64");
+      contentParts.push({
+        type: "image_url",
+        image_url: { url: `data:application/pdf;base64,${b64}`, detail: "high" },
+      });
+    }
+  } else if (imageBase64 && imageMimeType) {
+    // 画像は base64 で直接渡す
+    contentParts.push({
+      type: "image_url",
+      image_url: { url: `data:${imageMimeType};base64,${imageBase64}`, detail: "high" },
     });
-  } else {
-    messages.push({ role: "user", content: prompt });
+  } else if (fileBuffer) {
+    const b64 = fileBuffer.toString("base64");
+    const mime = fileMimeType || "image/jpeg";
+    contentParts.push({
+      type: "image_url",
+      image_url: { url: `data:${mime};base64,${b64}`, detail: "high" },
+    });
   }
 
   try {
     const response = await invokeLLM({
-      messages: messages as Parameters<typeof invokeLLM>[0]["messages"],
+      model: "gemini-3.1-pro-preview",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: contentParts,
+        },
+      ] as Parameters<typeof invokeLLM>[0]["messages"],
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -117,17 +113,17 @@ export async function extractWithGemini(
           schema: {
             type: "object",
             properties: {
-              date: { type: "string", description: "伝票日付 YYYY/MM/DD" },
-              supplier: { type: "string", description: "仕入先会社名（納品書の発行元会社名、なければ空文字）" },
+              date: { type: "string", description: "伝票日付 YYYY/MM/DD（不明なら空文字）" },
+              supplier: { type: "string", description: "仕入先会社名（発行元、なければ空文字）" },
               items: {
                 type: "array",
                 items: {
                   type: "object",
                   properties: {
                     jan: { type: "string", description: "13桁JANコード（なければ空文字）" },
-                    productName: { type: "string", description: "商品名" },
-                    supplierCode: { type: "string", description: "仕入先品番コード（メーカー品番・商品コード、なければ空文字）" },
-                    quantity: { type: "number", description: "数量" },
+                    productName: { type: "string", description: "商品名（完全な名称）" },
+                    supplierCode: { type: "string", description: "仕入先品番・商品コード・型番（なければ空文字）" },
+                    quantity: { type: "number", description: "数量（整数）" },
                   },
                   required: ["jan", "productName", "supplierCode", "quantity"],
                   additionalProperties: false,
@@ -145,7 +141,8 @@ export async function extractWithGemini(
     if (!content) throw new Error("Geminiからレスポンスがありません");
 
     const parsed = typeof content === "string" ? JSON.parse(content) : content;
-    // 年が正しくない場合（2020未満または2030超）は現在年に補正
+
+    // 年の補正
     let date = parsed.date as string | undefined;
     if (date) {
       const m = date.match(/^(\d{4})([\/\-]\d{2}[\/\-]\d{2})$/);
@@ -156,6 +153,7 @@ export async function extractWithGemini(
         }
       }
     }
+
     return {
       date,
       supplier: parsed.supplier as string | undefined,
@@ -167,16 +165,19 @@ export async function extractWithGemini(
   }
 }
 
-function buildPrompt(mode: string, ocrText: string): string {
-  const baseInstruction = ocrText
-    ? `以下のOCRテキストから情報を抽出してください:\n\n${ocrText}`
-    : "添付の画像から情報を抽出してください。";
+/** Document AIは廃止。後方互換のためダミーを残す */
+export async function ocrWithDocumentAI(
+  _fileBuffer: Buffer,
+  _mimeType: string
+): Promise<{ text: string; error?: string }> {
+  return { text: "", error: "Document AI廃止済み - Gemini直接処理を使用" };
+}
 
+function buildPrompt(mode: string): string {
   const modeInstructions: Record<string, string> = {
-    jan_jpg: `${baseInstruction}\n\nJANコード（13桁）と数量を全行抽出してください。数量0の行は除外。`,
-    jan_pdf: `${baseInstruction}\n\nJANコード（13桁）と数量を全行抽出してください。数量0の行は除外。`,
-    name_pdf: `${baseInstruction}\n\n商品名・商品コード（仕入先品番）と数量を全行抽出してください。JANコードがあれば併せて抽出してください。`,
+    jan_jpg: "この画像の納品書・伝票から、JANコード（13桁）・商品名・仕入先品番・数量・日付・仕入先会社名を全行漏れなく抽出してください。",
+    jan_pdf: "このPDFの納品書・伝票から、JANコード（13桁）・商品名・仕入先品番・数量・日付・仕入先会社名を全ページ・全行漏れなく抽出してください。",
+    name_pdf: "このPDFの納品書・伝票から、商品名・仕入先品番（商品コード・型番）・数量・日付・仕入先会社名を全ページ・全行漏れなく抽出してください。JANコードがあれば併せて抽出してください。",
   };
-
-  return modeInstructions[mode] || baseInstruction;
+  return modeInstructions[mode] || "この納品書・伝票から商品情報を全行漏れなく抽出してください。";
 }

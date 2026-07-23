@@ -142,27 +142,30 @@ export async function processGmailPdfs(): Promise<{
 
   for (const att of attachments) {
     try {
-      // OCR処理
-      const ocrResult = await ocrWithDocumentAI(att.data, att.mimeType);
-      let ocrText = ocrResult.text || "";
-      let imageBase64: string | undefined;
-      let imageMimeType: string | undefined;
-
-      if (ocrResult.error) {
-        // PDFをbase64に変換してGeminiに直接送る
-        imageBase64 = att.data.toString("base64");
-        imageMimeType = att.mimeType;
-      }
-
-      // Gemini抽出（JANモード → 商品名モードのフォールバック）
-      let extracted = await extractWithGemini("jan_pdf", ocrText, imageBase64, imageMimeType);
+      // Gemini直接処理（Document AI廃止）
+      // PDFはS3経由でfile_url、画像はimage_urlでGeminiに直接渡す（最高精度）
+      let extracted = await extractWithGemini(
+        "jan_pdf",
+        "",
+        undefined,
+        undefined,
+        att.data,
+        att.mimeType
+      );
 
       // JANモードで全件未照合の場合は商品名モードで再試行
       if (!extracted.error && extracted.items.length > 0) {
         const hasJan = extracted.items.some(item => item.jan && item.jan.length >= 8);
         if (!hasJan) {
           // JANコードが1件も取れなかった → 商品名モードで再抽出
-          extracted = await extractWithGemini("name_pdf", ocrText, imageBase64, imageMimeType);
+          extracted = await extractWithGemini(
+            "name_pdf",
+            "",
+            undefined,
+            undefined,
+            att.data,
+            att.mimeType
+          );
         }
       }
 
