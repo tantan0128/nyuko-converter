@@ -9,6 +9,8 @@ import { ArrowLeft, Mail, RefreshCw, Download, CheckCircle, AlertCircle, Loader2
 interface NotFoundItem {
   label: string;
   quantity: number;
+  supplierCode?: string;
+  jan?: string;
 }
 
 interface GmailJob {
@@ -43,24 +45,40 @@ export default function GmailJobs() {
   const [registeringIdx, setRegisteringIdx] = useState<number | null>(null);
   const [registeredIdxs, setRegisteredIdxs] = useState<Set<number>>(new Set());
 
-  async function registerKeyword(label: string, idx: number) {
+  async function registerKeyword(item: NotFoundItem, idx: number) {
     setRegisteringIdx(idx);
     try {
-      // labelから商品名と品番を分離
-      // 例: "こどものせんす まるいっぱい [品番:3066337698]" → productName="こどものせんす まるいっぱい", supplierCode="3066337698"
-      const supplierCodeMatch = label.match(/\[品番:([^\]]+)\]/);
-      const supplierCode = supplierCodeMatch ? supplierCodeMatch[1].trim() : null;
-      const productName = label.replace(/\s*\[品番:[^\]]+\]/, "").trim();
-      // D列に登録する内容: 品番があれば品番を優先、なければ商品名
-      const keywordToRegister = supplierCode || productName;
+      // 登録内容の優先順: supplierCode > jan > labelから抽出した品番 > 商品名
+      const supplierCode = item.supplierCode || (() => {
+        const m = item.label.match(/\[品番:([^\]]+)\]/);
+        return m ? m[1].trim() : null;
+      })();
+      const jan = item.jan || (() => {
+        const m = item.label.match(/\[JAN:([^\]]+)\]/);
+        return m ? m[1].trim() : null;
+      })();
+      // 商品名：labelから品番・JANタグを除いた文字列
+      const productName = item.label
+        .replace(/\s*\[品番:[^\]]+\]/g, "")
+        .replace(/\s*\[JAN:[^\]]+\]/g, "")
+        .trim();
+      // D列に登録する内容: supplierCode > jan > productName
+      const keywordToRegister = supplierCode || jan || productName;
+
       const res = await fetch("/api/register-keyword", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: keywordToRegister, productName }),
+        body: JSON.stringify({
+          keyword: keywordToRegister,
+          productName,
+          supplierCode: supplierCode || undefined,
+          jan: jan || undefined,
+        }),
       });
       const data = await res.json();
       if (data.ok) {
-        toast.success(`「${keywordToRegister}」をD列に登録しました`);
+        const registered = supplierCode ? `品番:${supplierCode}` : jan ? `JAN:${jan}` : keywordToRegister;
+        toast.success(`「${registered}」をD列に登録しました`);
         setRegisteredIdxs(prev => new Set(Array.from(prev).concat(idx)));
       } else {
         toast.error(`登録失敗: ${data.error || "不明なエラー"}`);
@@ -432,7 +450,7 @@ export default function GmailJobs() {
                           <button
                             className="text-xs bg-amber-500 text-white px-2 py-1 rounded hover:bg-amber-600 disabled:opacity-50 shrink-0"
                             disabled={registeringIdx === i}
-                            onClick={() => registerKeyword(item.label, i)}
+                            onClick={() => registerKeyword(item, i)}
                           >
                             {registeringIdx === i ? "登録中..." : "D列に登録"}
                           </button>

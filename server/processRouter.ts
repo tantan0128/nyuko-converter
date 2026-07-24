@@ -29,7 +29,7 @@ router.post("/process", upload.array("files", 20), async (req, res) => {
 
   const logs: string[] = [];
   const allRows: Array<{ code: string; stockType: string; quantity: number; date: string; time: string; note: string }> = [];
-  const notFound: Array<{ label: string; productName: string; quantity: number }> = [];
+  const notFound: Array<{ label: string; productName: string; quantity: number; supplierCode?: string; jan?: string }> = [];
   const errors: string[] = [];
   let detectedSupplier = ""; // Geminiが抽出した仕入先名
 
@@ -69,7 +69,7 @@ router.post("/process", upload.array("files", 20), async (req, res) => {
   }
 });
 
-type NotFoundItem = { label: string; productName: string; quantity: number };
+type NotFoundItem = { label: string; productName: string; quantity: number; supplierCode?: string; jan?: string };
 
 async function processImageOrPDF(
   file: Express.Multer.File,
@@ -134,17 +134,18 @@ async function processImageOrPDF(
       }
     }
 
-    // ステップ2: 仕入先品番コードで照合（コードのハイフン後部分と一致）
-    if (!code && item.supplierCode) {
+    // JANがあるのに未登録かどうかのフラグ
+    const hasJanCode = !!(item.jan && item.jan.length >= 8);
+
+    // ステップ2: 仕入先品番コードで照合（JANがあるのに未登録の場合はスキップ）
+    if (!code && item.supplierCode && !hasJanCode) {
       code = matchBySupplierCode(item.supplierCode, products, supplierPrefix ?? undefined);
       if (code) {
         logs.push(`品番照合成功: ${item.supplierCode} → ${code}`);
       }
     }
 
-    // ステップ3: 仕入元絞り込みで商品名/D列キーワード照合
-    // 但しJANcodeがあるのに未登録の場合は商品名照合をスキップ（誤マッチ防止）
-    const hasJanCode = !!(item.jan && item.jan.length >= 8);
+    // ステップ3: 仕入元絞り込みで商品名/D列キーワード照合（JANがあるのに未登録の場合はスキップ）
     if (!code && item.productName && supplierPrefix && !hasJanCode) {
       code = matchByName(item.productName, products, supplierPrefix);
       if (code) {
@@ -152,8 +153,7 @@ async function processImageOrPDF(
       }
     }
 
-    // ステップ4: 絞り込みなしで全体から商品名/D列キーワード照合
-    // JANcodeがあるのに未登録の場合はスキップ（誤マッチ防止）
+    // ステップ4: 絞り込みなしで全体から商品名/D列キーワード照合（JANがあるのに未登録の場合はスキップ）
     if (!code && item.productName && !hasJanCode) {
       code = matchByName(item.productName, products);
       if (code) {
@@ -170,12 +170,20 @@ async function processImageOrPDF(
         );
       }
     } else {
-      const label = item.jan
-        ? `JAN:${item.jan}`
-        : item.productName
-          ? `${item.productName}${item.supplierCode ? ` [品番:${item.supplierCode}]` : ""}`
-          : "不明";
-      notFound.push({ label, productName: item.productName || item.jan || "不明", quantity: item.quantity });
+      // 未照合ラベル：商品名・JAN・品番を全て含める
+      const parts: string[] = [];
+      if (item.productName) parts.push(item.productName);
+      if (item.supplierCode) parts.push(`[品番:${item.supplierCode}]`);
+      if (item.jan) parts.push(`[JAN:${item.jan}]`);
+      const label = parts.length > 0 ? parts.join(" ") : "不明";
+      logs.push(`未照合: ${label} 数量:${item.quantity}`);
+      notFound.push({
+        label,
+        productName: item.productName || item.jan || "不明",
+        quantity: item.quantity,
+        supplierCode: item.supplierCode || undefined,
+        jan: item.jan || undefined,
+      });
     }
   }
 
@@ -215,17 +223,27 @@ function formatDate(d: Date): string {
 
 /** 未登録商品のキーワード登録（その場登録）
  * keyword: D列に登録する品番など
- * productName: C列の商品名で検索するための名前（省略時はkeywordで検索） */
+ * productName: C列の商品名で検索するための名前（省略時はkeywordで検索）
+ * supplierCode: 仕入先品番（こちらを優先してD列に登録）
+ * jan: JANコード（supplierCodeがない場合に使用） */
 router.post("/register-keyword", express.json(), async (req, res) => {
   try {
-    const { keyword, productName } = req.body as { keyword?: string; productName?: string };
-    if (!keyword || !keyword.trim()) {
-      return res.status(400).json({ ok: false, error: "キーワードは必須です" });
+    const { keyword, productName, supplierCode, jan } = req.body as {
+      keyword?: string;
+      productName?: string;
+      supplierCode?: string;
+      jan?: string;
+    };
+
+    // D列に登録するキーワードを決定：supplierCode > jan > keyword の優先順
+    const keywordToRegister = (supplierCode || jan || keyword || "").trim();
+    if (!keywordToRegister) {
+      return res.status(400).json({ ok: false, error: "登録するキーワードがありません" });
     }
-    const kw = keyword.trim();
+
     const pn = productName?.trim() || undefined;
-    // productNameがあればそれでC列を検索し、keyword（品番）をD列に登録
-    const result = await appendKeywordByName(kw, pn);
+    // productNameがあればそれでC列を検索し、keywordToRegisterをD列に登録
+    const result = await appendKeywordByName(keywordToRegister, pn);
     res.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

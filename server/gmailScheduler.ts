@@ -220,20 +220,20 @@ export async function processGmailPdfs(): Promise<{
           if (code) matchedByJan = true;
         }
 
-        // ステップ2: 仕入先品番コードで照合
-        if (!code && item.supplierCode) {
+        // JANがあるのに未登録かどうかのフラグ
+        const hasJanCode = !!(item.jan && item.jan.length >= 8);
+
+        // ステップ2: 仕入先品番コードで照合（JANがあるのに未登録の場合はスキップ）
+        if (!code && item.supplierCode && !hasJanCode) {
           code = matchBySupplierCode(item.supplierCode, products, supplierPrefix ?? undefined);
         }
 
-        // ステップ3: 仕入元絞り込みで商品名照合
-        // JANcodeがあるのに未登録の場合はスキップ（誤マッチ防止）
-        const hasJanCode = !!(item.jan && item.jan.length >= 8);
+        // ステップ3: 仕入元絞り込みで商品名照合（JANがあるのに未登録の場合はスキップ）
         if (!code && item.productName && supplierPrefix && !hasJanCode) {
           code = matchByName(item.productName, products, supplierPrefix);
         }
 
-        // ステップ4: 全体から商品名照合
-        // JANcodeがあるのに未登録の場合はスキップ（誤マッチ防止）
+        // ステップ4: 全体から商品名照合（JANがあるのに未登録の場合はスキップ）
         if (!code && item.productName && !hasJanCode) {
           code = matchByName(item.productName, products);
         }
@@ -247,11 +247,12 @@ export async function processGmailPdfs(): Promise<{
             );
           }
         } else {
-          const label = item.jan
-            ? `JAN:${item.jan}`
-            : item.productName
-              ? `${item.productName}${item.supplierCode ? ` [品番:${item.supplierCode}]` : ""}`
-              : "不明";
+          // 未照合ラベル：商品名・JAN・品番を全て含める
+          const parts: string[] = [];
+          if (item.productName) parts.push(item.productName);
+          if (item.supplierCode) parts.push(`[品番:${item.supplierCode}]`);
+          if (item.jan) parts.push(`[JAN:${item.jan}]`);
+          const label = parts.length > 0 ? parts.join(" ") : "不明";
           notFoundItems.push({ label, quantity: item.quantity });
         }
       }
