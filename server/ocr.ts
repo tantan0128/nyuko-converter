@@ -1,5 +1,4 @@
-import { invokeLLM } from "./_core/llm";
-import { storagePut, storageGetSignedUrl } from "./storage";
+import { DocumentProcessorServiceClient } from "@google-cloud/documentai";
 
 export interface ExtractedItem {
   jan?: string;
@@ -16,153 +15,225 @@ export interface ExtractedData {
   error?: string;
 }
 
-const SYSTEM_PROMPT = `あなたは日本の納品書・売上伝票・出荷案内書のデータ抽出の専門家です。
-PDFまたは画像に含まれる全ての商品情報を漏れなく正確に抽出してください。
+/**
+ * Document AIでPDF/画像からテキストを抽出する
+ */
+export async function ocrWithDocumentAI(
+  fileBuffer: Buffer,
+  mimeType: string
+): Promise<{ text: string; error?: string }> {
+  try {
+    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "{}");
+    const client = new DocumentProcessorServiceClient({ credentials });
 
-【抽出ルール】
-- 仕入先会社名：納品書の発行元（送り主）の会社名。右上・左上・ヘッダーに記載の「株式会社」「有限会社」等を含む正式名称。「納品先」「お届け先」は除外。
-- JANコード：13桁の数字のみ（バーコード番号）。12桁や8桁は除外。
-- 仕入先品番（supplierCode）：メーカー品番・商品コード・品番・型番・品目コード等。英数字混在が多い。JANコードとは別の項目。
-- 商品名：商品の名称。できるだけ完全な名称を抽出。
-- 数量：出荷数・納品数・数量の列の値。整数で返す。
-- 日付：伝票日付（YYYY/MM/DD形式）。年が不明な場合は2026年。
+    const projectId = process.env.DOCUMENT_AI_PROJECT_ID;
+    const location = process.env.DOCUMENT_AI_LOCATION || "us";
+    const processorId = process.env.DOCUMENT_AI_PROCESSOR_ID;
 
-【除外するもの】
-- 数量が0の行
-- 運賃・送料・配送料・手数料・消費税・税・値引・割引・小計・合計・請求額
-- ページ番号・備考・注意書き
+    if (!projectId || !processorId) {
+      return { text: "", error: "Document AI設定が不足しています（PROJECT_ID/PROCESSOR_ID）" };
+    }
 
-【重要な注意点】
-- 複数ページある場合は全ページを読み取る
-- 表の罫線をまたいでも全行を読み取る
-- 品番とJANコードは別フィールドに分けて抽出する
-- 同じ商品が複数行に分かれている場合は数量を合算せず別行として返す
-- ページ端の記号（▶→►等）は無視して全行読み取る
+    const name = `projects/${projectId}/locations/${location}/processors/${processorId}`;
 
-必ずJSON形式で返してください。`;
+    const [result] = await client.processDocument({
+      name,
+      rawDocument: {
+        content: fileBuffer.toString("base64"),
+        mimeType,
+      },
+    });
+
+    const text = result.document?.text || "";
+    return { text };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { text: "", error: `Document AIエラー: ${msg}` };
+  }
+}
 
 /**
- * PDFまたは画像をGeminiに直接渡して商品情報を抽出する
- * - PDFはS3にアップロードして署名付きURLを取得し file_url で渡す（最高精度）
- * - 画像は image_url (base64) で渡す
- * - モデルは gemini-3.1-pro-preview（最高精度）を使用
+ * Document AIで抽出したテキストからルールベースで商品情報を抽出する
+ * （Gemini互換インターフェース）
  */
 export async function extractWithGemini(
   mode: string,
-  _ocrText: string,
-  imageBase64?: string,
-  imageMimeType?: string,
+  ocrText: string,
+  _imageBase64?: string,
+  _imageMimeType?: string,
   fileBuffer?: Buffer,
   fileMimeType?: string
 ): Promise<ExtractedData> {
-  const prompt = buildPrompt(mode);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const contentParts: any[] = [{ type: "text", text: prompt }];
-
-  const isPdf = fileMimeType === "application/pdf" || imageMimeType === "application/pdf";
-
-  if (fileBuffer && isPdf) {
-    // PDFはbase64でfile_urlとして直接渡す（GeminiがPDFをネイティブ読み取りできる）
-    const b64 = fileBuffer.toString("base64");
-    contentParts.push({
-      type: "file_url",
-      file_url: { url: `data:application/pdf;base64,${b64}`, mime_type: "application/pdf" },
-    });
-  } else if (imageBase64 && imageMimeType) {
-    // 画像は base64 で直接渡す
-    contentParts.push({
-      type: "image_url",
-      image_url: { url: `data:${imageMimeType};base64,${imageBase64}`, detail: "high" },
-    });
-  } else if (fileBuffer) {
-    const b64 = fileBuffer.toString("base64");
-    const mime = fileMimeType || "image/jpeg";
-    contentParts.push({
-      type: "image_url",
-      image_url: { url: `data:${mime};base64,${b64}`, detail: "high" },
-    });
+  // fileBufferが渡された場合はDocument AIで処理
+  let text = ocrText;
+  if (fileBuffer && (!text || text.trim() === "")) {
+    const mime = fileMimeType || "application/pdf";
+    const docResult = await ocrWithDocumentAI(fileBuffer, mime);
+    if (docResult.error && !docResult.text) {
+      return { items: [], error: docResult.error };
+    }
+    text = docResult.text;
   }
 
-  // JSON形式をプロンプトで指示（response_format: json_schemaはfile_urlと組み合わせと空レスポンスになるため使わない）
-  const jsonInstruction = `
-必ず以下のJSON形式だけで返答してください（説明文不要）:
-{
-  "date": "伝票日付 YYYY/MM/DD",
-  "supplier": "仕入先会社名",
-  "items": [
-    {
-      "jan": "13桁JANコード（なければ空文字）",
-      "productName": "商品名",
-      "supplierCode": "仕入先品番・型番",
-      "quantity": 数量整数
+  if (!text || text.trim() === "") {
+    return { items: [], error: "テキストを抽出できませんでした" };
+  }
+
+  return extractFromText(text, mode);
+}
+
+/**
+ * テキストからルールベースで商品情報を抽出する
+ */
+function extractFromText(text: string, _mode: string): ExtractedData {
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+
+  // ---- 日付の抽出 ----
+  let date: string | undefined;
+  for (const line of lines) {
+    const m = line.match(/(\d{4})[年\/\-](\d{1,2})[月\/\-](\d{1,2})/);
+    if (m) {
+      date = `${m[1]}/${m[2].padStart(2, "0")}/${m[3].padStart(2, "0")}`;
+      break;
     }
-  ]
-}`;
+  }
 
-  // 最後のテキストパーツにJSON指示を追加
-  const finalParts = [
-    ...contentParts,
-    { type: "text" as const, text: jsonInstruction }
-  ];
+  // ---- 仕入先会社名の抽出 ----
+  let supplier: string | undefined;
+  for (const line of lines) {
+    if (/(株式会社|有限会社|合同会社)/.test(line) &&
+        !line.includes("送り先") && !line.includes("届け先") &&
+        !line.includes("納品先") && !line.includes("様")) {
+      supplier = line.replace(/[　\s]+/g, " ").trim();
+      break;
+    }
+  }
 
-  try {
-    const response = await invokeLLM({
-      model: "gemini-3.1-pro-preview",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: finalParts,
-        },
-      ] as Parameters<typeof invokeLLM>[0]["messages"],
-    });
+  // ---- 商品情報の抽出 ----
+  // Document AIのテキストは行ごとに分割されているため、
+  // JANコード（13桁）を起点に前後の行から品番・商品名・数量を組み立てる
 
-    const content = response.choices?.[0]?.message?.content;
-    if (!content) throw new Error("Geminiからレスポンスがありません");
+  const JAN_RE = /^(4\d{12})$/;
+  // 品番パターン：英字+数字混在、または5〜8桁の数字コード
+  const CODE_RE = /^([A-Z]{1,5}[-]?\d{3,}[A-Z0-9\-]*|\d{5,8})$/;
+  // 数量パターン：1〜4桁の数字のみの行
+  const QTY_RE = /^(\d{1,4})$/;
+  // 日本語を含む行（商品名候補）
+  const JP_RE = /[\u3040-\u30FF\u4E00-\u9FFF]/;
 
-    // Geminiがmarkdownコードブロックで返す場合があるので除去してパース
-    let jsonText = typeof content === "string" ? content : JSON.stringify(content);
-    // ```json ... ``` や ``` ... ``` を除去
-    jsonText = jsonText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-    const parsed = JSON.parse(jsonText);
+  const items: ExtractedItem[] = [];
+  const usedLines = new Set<number>();
 
-    // 年の補正
-    let date = parsed.date as string | undefined;
-    if (date) {
-      const m = date.match(/^(\d{4})([\/\-]\d{2}[\/\-]\d{2})$/);
-      if (m) {
-        const y = parseInt(m[1], 10);
-        if (y < 2020 || y > 2030) {
-          date = `${new Date().getFullYear()}${m[2]}`;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // JANコードの行を見つける
+    if (!JAN_RE.test(line)) continue;
+    const jan = line;
+    if (jan.startsWith("984000")) continue; // 除外
+    if (usedLines.has(i)) continue;
+    usedLines.add(i);
+
+    // 前後5行のコンテキストを収集
+    const before = lines.slice(Math.max(0, i - 5), i);
+    const after = lines.slice(i + 1, Math.min(lines.length, i + 6));
+
+    // 品番：JANの直前の行にあることが多い
+    let supplierCode: string | undefined;
+    for (let j = before.length - 1; j >= 0; j--) {
+      if (CODE_RE.test(before[j]) && !JAN_RE.test(before[j])) {
+        supplierCode = before[j];
+        break;
+      }
+    }
+
+    // 商品名：日本語を含む行（前後から探す）
+    let productName: string | undefined;
+    // afterから先に探す
+    for (const l of after) {
+      if (JP_RE.test(l) && !l.includes("株式会社") && !l.includes("様") && !l.includes("送り先")) {
+        const cleaned = l.replace(/[　\s]+/g, " ").trim();
+        if (cleaned.length > 2) { productName = cleaned; break; }
+      }
+    }
+    if (!productName) {
+      for (let j = before.length - 1; j >= 0; j--) {
+        if (JP_RE.test(before[j]) && !before[j].includes("株式会社") && !before[j].includes("様")) {
+          const cleaned = before[j].replace(/[　\s]+/g, " ").trim();
+          if (cleaned.length > 2) { productName = cleaned; break; }
         }
       }
     }
 
-    return {
-      date,
-      supplier: parsed.supplier as string | undefined,
-      items: (parsed.items || []).filter((item: ExtractedItem) => item.quantity > 0),
-    };
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { items: [], error: `Gemini抽出エラー: ${msg}` };
+    // 数量：afterの中から数量らしい行を探す
+    // 「入数 C/T 端数 総数」パターン（例: "24 1 24"）を優先
+    let quantity = 0;
+    const afterText = after.join(" ");
+    // 「数字 数字 数字」パターン（入数・C/T・総数）
+    const multiNumMatch = afterText.match(/(\d+)\s+(\d+)\s+(\d+)/);
+    if (multiNumMatch) {
+      // 最後の数字が総数
+      quantity = parseInt(multiNumMatch[3], 10);
+    } else {
+      // 単独の数量行
+      for (const l of after) {
+        if (QTY_RE.test(l)) {
+          const n = parseInt(l, 10);
+          if (n > 0 && n <= 9999) { quantity = n; break; }
+        }
+      }
+    }
+    if (quantity <= 0) quantity = 1;
+
+    items.push({ jan, productName, supplierCode, quantity });
   }
-}
 
-/** Document AIは廃止。後方互換のためダミーを残す */
-export async function ocrWithDocumentAI(
-  _fileBuffer: Buffer,
-  _mimeType: string
-): Promise<{ text: string; error?: string }> {
-  return { text: "", error: "Document AI廃止済み - Gemini直接処理を使用" };
-}
+  // JANコードが見つからなかった場合：品番ベースで抽出
+  if (items.length === 0) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!JP_RE.test(line)) continue;
+      if (line.includes("株式会社") || line.includes("様") || line.includes("送り先")) continue;
+      const excludeWords = ["選べる", "廃番", "お選びください", "小計", "合計", "消費税", "送料", "手数料"];
+      if (excludeWords.some(w => line.includes(w))) continue;
 
-function buildPrompt(mode: string): string {
-  const modeInstructions: Record<string, string> = {
-    jan_jpg: "この画像の納品書・伝票から、JANコード（13桁）・商品名・仕入先品番・数量・日付・仕入先会社名を全行漏れなく抽出してください。",
-    jan_pdf: "このPDFの納品書・伝票から、JANコード（13桁）・商品名・仕入先品番・数量・日付・仕入先会社名を全ページ・全行漏れなく抽出してください。",
-    name_pdf: "このPDFの納品書・伝票から、商品名・仕入先品番（商品コード・型番）・数量・日付・仕入先会社名を全ページ・全行漏れなく抽出してください。JANコードがあれば併せて抽出してください。",
-  };
-  return modeInstructions[mode] || "この納品書・伝票から商品情報を全行漏れなく抽出してください。";
+      const context = lines.slice(Math.max(0, i - 2), Math.min(lines.length, i + 4)).join(" ");
+      let quantity = 0;
+      const multiNumMatch = context.match(/(\d+)\s+(\d+)\s+(\d+)/);
+      if (multiNumMatch) {
+        quantity = parseInt(multiNumMatch[3], 10);
+      } else {
+        const nums = context.match(/\b(\d{1,4})\b/g);
+        if (nums) {
+          const valid = nums.map(Number).filter(n => n > 0 && n <= 9999);
+          if (valid.length > 0) quantity = valid[valid.length - 1];
+        }
+      }
+      if (quantity <= 0) continue;
+
+      let supplierCode: string | undefined;
+      const codeMatch = context.match(/\b([A-Z]{1,5}[-]?\d{3,}[A-Z0-9\-]*)\b/g);
+      if (codeMatch) {
+        const filtered = codeMatch.filter(c => c.length >= 4);
+        if (filtered.length > 0) supplierCode = filtered[0];
+      }
+
+      items.push({
+        productName: line.replace(/[　\s]+/g, " ").trim(),
+        supplierCode,
+        quantity,
+      });
+    }
+  }
+
+  // 重複除去
+  const seen = new Set<string>();
+  const uniqueItems = items.filter(item => {
+    const key = item.jan || item.productName || "";
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return { date, supplier, items: uniqueItems };
 }
