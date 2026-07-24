@@ -94,9 +94,13 @@ async function processImageOrPDF(
     mimeType
   );
   if (extracted.error) {
-    errors.push(`${file.originalname}: ${extracted.error}`);
     logs.push(`Gemini抽出エラー: ${extracted.error}`);
-    return undefined;
+    // エラーでも抽出できた商品があれば未照合として追加
+    if (!extracted.items || extracted.items.length === 0) {
+      errors.push(`${file.originalname}: ${extracted.error}`);
+      return undefined;
+    }
+    logs.push(`エラーあり・部分抽出: ${extracted.items.length}件を未照合として処理`);
   }
 
   logs.push(`Gemini抽出: ${extracted.items.length}件`);
@@ -139,7 +143,9 @@ async function processImageOrPDF(
     }
 
     // ステップ3: 仕入元絞り込みで商品名/D列キーワード照合
-    if (!code && item.productName && supplierPrefix) {
+    // 但しJANcodeがあるのに未登録の場合は商品名照合をスキップ（誤マッチ防止）
+    const hasJanCode = !!(item.jan && item.jan.length >= 8);
+    if (!code && item.productName && supplierPrefix && !hasJanCode) {
       code = matchByName(item.productName, products, supplierPrefix);
       if (code) {
         logs.push(`商品名照合成功（${supplierPrefix}-絞り込み）: ${item.productName} → ${code}`);
@@ -147,7 +153,8 @@ async function processImageOrPDF(
     }
 
     // ステップ4: 絞り込みなしで全体から商品名/D列キーワード照合
-    if (!code && item.productName) {
+    // JANcodeがあるのに未登録の場合はスキップ（誤マッチ防止）
+    if (!code && item.productName && !hasJanCode) {
       code = matchByName(item.productName, products);
       if (code) {
         logs.push(`商品名照合成功（全体）: ${item.productName} → ${code}`);

@@ -170,9 +170,13 @@ export async function processGmailPdfs(): Promise<{
       }
 
       if (extracted.error) {
-        errors.push(`${att.filename}: ${extracted.error}`);
-        skipped++;
-        continue;
+        // エラーでも抽出できた商品があれば未照合として処理を継続
+        if (!extracted.items || extracted.items.length === 0) {
+          errors.push(`${att.filename}: ${extracted.error}`);
+          skipped++;
+          continue;
+        }
+        errors.push(`${att.filename}: 部分抽出 (${extracted.items.length}件) - ${extracted.error}`);
       }
 
       // 仕入元プレフィックスを推定
@@ -222,12 +226,15 @@ export async function processGmailPdfs(): Promise<{
         }
 
         // ステップ3: 仕入元絞り込みで商品名照合
-        if (!code && item.productName && supplierPrefix) {
+        // JANcodeがあるのに未登録の場合はスキップ（誤マッチ防止）
+        const hasJanCode = !!(item.jan && item.jan.length >= 8);
+        if (!code && item.productName && supplierPrefix && !hasJanCode) {
           code = matchByName(item.productName, products, supplierPrefix);
         }
 
         // ステップ4: 全体から商品名照合
-        if (!code && item.productName) {
+        // JANcodeがあるのに未登録の場合はスキップ（誤マッチ防止）
+        if (!code && item.productName && !hasJanCode) {
           code = matchByName(item.productName, products);
         }
 

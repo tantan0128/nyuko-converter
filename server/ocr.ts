@@ -63,23 +63,12 @@ export async function extractWithGemini(
   const isPdf = fileMimeType === "application/pdf" || imageMimeType === "application/pdf";
 
   if (fileBuffer && isPdf) {
-    // PDFはS3にアップロードして署名付きURLを取得し file_url で渡す
-    try {
-      const key = `ocr-tmp/${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`;
-      await storagePut(key, fileBuffer, "application/pdf");
-      const signedUrl = await storageGetSignedUrl(key);
-      contentParts.push({
-        type: "file_url",
-        file_url: { url: signedUrl, mime_type: "application/pdf" },
-      });
-    } catch (_uploadErr) {
-      // アップロード失敗時は base64 image にフォールバック
-      const b64 = fileBuffer.toString("base64");
-      contentParts.push({
-        type: "image_url",
-        image_url: { url: `data:application/pdf;base64,${b64}`, detail: "high" },
-      });
-    }
+    // PDFはbase64でfile_urlとして直接渡す（GeminiがPDFをネイティブ読み取りできる）
+    const b64 = fileBuffer.toString("base64");
+    contentParts.push({
+      type: "file_url",
+      file_url: { url: `data:application/pdf;base64,${b64}`, mime_type: "application/pdf" },
+    });
   } else if (imageBase64 && imageMimeType) {
     // 画像は base64 で直接渡す
     contentParts.push({
@@ -95,6 +84,28 @@ export async function extractWithGemini(
     });
   }
 
+  // JSON形式をプロンプトで指示（response_format: json_schemaはfile_urlと組み合わせと空レスポンスになるため使わない）
+  const jsonInstruction = `
+必ず以下のJSON形式だけで返答してください（説明文不要）:
+{
+  "date": "伝票日付 YYYY/MM/DD",
+  "supplier": "仕入先会社名",
+  "items": [
+    {
+      "jan": "13桁JANコード（なければ空文字）",
+      "productName": "商品名",
+      "supplierCode": "仕入先品番・型番",
+      "quantity": 数量整数
+    }
+  ]
+}`;
+
+  // 最後のテキストパーツにJSON指示を追加
+  const finalParts = [
+    ...contentParts,
+    { type: "text" as const, text: jsonInstruction }
+  ];
+
   try {
     const response = await invokeLLM({
       model: "gemini-3.1-pro-preview",
@@ -102,45 +113,19 @@ export async function extractWithGemini(
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
-          content: contentParts,
+          content: finalParts,
         },
       ] as Parameters<typeof invokeLLM>[0]["messages"],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "extracted_data",
-          strict: true,
-          schema: {
-            type: "object",
-            properties: {
-              date: { type: "string", description: "伝票日付 YYYY/MM/DD（不明なら空文字）" },
-              supplier: { type: "string", description: "仕入先会社名（発行元、なければ空文字）" },
-              items: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    jan: { type: "string", description: "13桁JANコード（なければ空文字）" },
-                    productName: { type: "string", description: "商品名（完全な名称）" },
-                    supplierCode: { type: "string", description: "仕入先品番・商品コード・型番（なければ空文字）" },
-                    quantity: { type: "number", description: "数量（整数）" },
-                  },
-                  required: ["jan", "productName", "supplierCode", "quantity"],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ["date", "supplier", "items"],
-            additionalProperties: false,
-          },
-        },
-      },
     });
 
     const content = response.choices?.[0]?.message?.content;
     if (!content) throw new Error("Geminiからレスポンスがありません");
 
-    const parsed = typeof content === "string" ? JSON.parse(content) : content;
+    // Geminiがmarkdownコードブロックで返す場合があるので除去してパース
+    let jsonText = typeof content === "string" ? content : JSON.stringify(content);
+    // ```json ... ``` や ``` ... ``` を除去
+    jsonText = jsonText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+    const parsed = JSON.parse(jsonText);
 
     // 年の補正
     let date = parsed.date as string | undefined;
