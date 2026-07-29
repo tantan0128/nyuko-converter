@@ -1,7 +1,7 @@
 /**
  * OCR処理モジュール
  * ユーザーのGemini APIキー（GEMINI_API_KEY）を使ってPDF/画像から商品情報を抽出する。
- * Manusクレジットは消費しない。
+ * Manusクレジット・invokeLLMは一切使用しない。
  */
 
 export interface ExtractedItem {
@@ -37,6 +37,7 @@ function isNonProductName(name: string): boolean {
     /納品いたしました/,
     /ご確認/,
     /よろしくお願い/,
+    /上記の通り/,
     /^品番[\s・\-]*品名$/,
     /^品番$/,
     /^品名$/,
@@ -47,22 +48,27 @@ function isNonProductName(name: string): boolean {
     /^区分$/,
     /^単$/,
     /^価$/,
+    /^連番$/,
+    /^摘要$/,
+    /^対象額$/,
+    /^税率/,
     /^納品書$/,
     /^発注書$/,
     /^請求書$/,
     /^領収書$/,
     /^売上伝票/,
     /^伝票/,
-    /町[0-9０-９]+番地?/,   // 住所
-    /丁目[0-9０-９]/,        // 住所
+    /町[0-9０-９]+番地?/,    // 住所
+    /丁目[0-9０-９]/,         // 住所
     /^[0-9０-９\-\s,，、]+$/, // 数字のみ
-    /^(有限会社|株式会社|合同会社|合資会社)[^\s]{1,30}$/, // 会社名のみ（商品名なし）
+    /^(有限会社|株式会社|合同会社|合資会社)[^\s]{1,30}$/, // 会社名のみ
   ];
   return nonProductPatterns.some((re) => re.test(s));
 }
 
 /**
  * Gemini APIを直接呼び出してPDF/画像から商品情報を抽出する
+ * ※ invokeLLM（Manusプロキシ）は使用しない
  */
 export async function extractWithGemini(
   _mode: string,
@@ -92,22 +98,23 @@ export async function extractWithGemini(
 【抽出ルール】
 - 全ページを読み取り、全商品を漏れなく抽出すること
 - JANコード：13桁の数字（4から始まることが多い）。「984000」で始まるものは除外
-- 仕入先品番（supplierCode）：英字+数字の組み合わせ（例：CMG-350-W、22218200）
+- 仕入先品番（supplierCode）：英字+数字の組み合わせ（例：CMG-350-W、22218200、WAS-WP-006）
 - 商品名：実際の商品・製品の名称のみ
 - 数量：整数。「入数×C/T=総数」の場合は総数を使用
 - 日付：納品日または発行日（YYYY/MM/DD形式）
-- 仕入先名：会社名
+- 仕入先名：書類を発行した会社名（送り主）
 
 【絶対に抽出しないもの（これらは商品ではない）】
-- 「下記のとおり納品いたしました」「ご確認」などの挨拶文・定型文
-- 「品番・品名」「数量」「単価」「金額」「区分」「備考」などの表ヘッダー行
+- 「下記のとおり納品いたしました」「上記の通り」「ご確認」などの挨拶文・定型文
+- 「品番・品名」「数量」「単価」「金額」「区分」「備考」「連番」「摘要」などの表ヘッダー行
 - 「納品書」「発注書」「請求書」などの書類タイトル
-- 会社名のみの行（「有限会社〇〇」「株式会社〇〇」だけで商品名・品番・JANがない行）
+- 会社名のみの行（商品名・品番・JANがない行）
 - 住所・電話番号・郵便番号
-- 「小計」「合計」「消費税」「送料」「手数料」を含む行
+- 「小計」「合計」「消費税」「税率」「送料」「手数料」「対象額」を含む行
 - 「選べる」「廃番」「お選びください」を含む行
-- 1〜2文字の断片テキスト（「川」「価」「単」など）
+- 1〜2文字の断片テキスト（「川」「価」「単」「古」など）
 - 数字のみの行
+- 「前ページより」などの繰越行
 
 必ず以下のJSON形式のみで返答してください（説明文不要）：
 {
@@ -116,8 +123,8 @@ export async function extractWithGemini(
   "items": [
     {
       "jan": "4977642221826",
-      "supplierCode": "CMG-350-W",
-      "productName": "セラミックコーティング真空二重マグ",
+      "supplierCode": "WAS-WP-006",
+      "productName": "プレミアム ディナーフォーク",
       "quantity": 24
     }
   ]
@@ -151,7 +158,7 @@ export async function extractWithGemini(
 
     if (!res.ok) {
       const errText = await res.text();
-      return { items: [], error: `Gemini APIエラー (${res.status}): ${errText.slice(0, 200)}` };
+      return { items: [], error: `Gemini APIエラー (${res.status}): ${errText.slice(0, 300)}` };
     }
 
     const data = await res.json() as {

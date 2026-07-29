@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
 import iconv from "iconv-lite";
-import { extractWithGemini } from "./ocr";
+import { ocrWithDocumentAI, extractWithGemini } from "./ocr";
 import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, appendKeywordByName, fetchJunidouList } from "./sheets";
 
 const router = express.Router();

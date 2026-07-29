@@ -5,7 +5,7 @@
 import express from "express";
 import { fetchUnprocessedPdfEmails, markAsProcessed, testGmailConnection } from "./gmail";
 import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, VENDOR_CODE_TO_NAME } from "./sheets";
-import { extractWithGemini, ExtractedItem } from "./ocr";
+import { ocrWithDocumentAI, extractWithGemini, ExtractedItem } from "./ocr";
 import { getDb } from "./db";
 import { gmailJobs } from "../drizzle/schema";
 import { desc, eq } from "drizzle-orm";
