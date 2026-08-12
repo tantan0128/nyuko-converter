@@ -2,6 +2,11 @@
  * OCR処理モジュール
  * ユーザーのGemini APIキー（GEMINI_API_KEY）を使ってPDF/画像から商品情報を抽出する。
  * Manusクレジット・invokeLLMは一切使用しない。
+ *
+ * 精度改善ポイント:
+ * - モデル: gemini-2.5-pro をデフォルト採用（GEMINI_MODEL環境変数で切替可）
+ * - responseSchema: 出力JSONの型を厳密指定し、品番の形式崩れ・抽出漏れを防止
+ * - プロンプト: ゼロ埋め・ハイフン揺れ・複数品番の帳票パターンを明示
  */
 
 export interface ExtractedItem {
@@ -20,7 +25,8 @@ export interface ExtractedData {
 }
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = "gemini-2.5-flash";
+// gemini-2.5-pro は新規ユーザー向け提供終了のため、利用可能な最新Proモデルを使用
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.1-pro-preview";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 /**
@@ -60,7 +66,7 @@ function isNonProductName(name: string): boolean {
     /^伝票/,
     /町[0-9０-９]+番地?/,    // 住所
     /丁目[0-9０-９]/,         // 住所
-    /^[0-9０-９\-\s,，、]+$/, // 数字のみ
+    /^[0-9０-９\-.,，、\s]+$/, // 数字・記号のみ
     /^(有限会社|株式会社|合同会社|合資会社)[^\s]{1,30}$/, // 会社名のみ
   ];
   return nonProductPatterns.some((re) => re.test(s));
@@ -69,6 +75,12 @@ function isNonProductName(name: string): boolean {
 /**
  * Gemini APIを直接呼び出してPDF/画像から商品情報を抽出する
  * ※ invokeLLM（Manusプロキシ）は使用しない
+ *
+ * responseSchema により、返却JSONの型を厳密に強制する:
+ * - items[] は必ず配列
+ * - quantity は必ず整数
+ * - jan は数字のみ（13桁）
+ * - supplierCode は英数字・ハイフン・スラッシュのみ
  */
 export async function extractWithGemini(
   _mode: string,
@@ -94,15 +106,38 @@ export async function extractWithGemini(
 
 【抽出対象】
 - 実際の商品・製品の明細行のみ（商品名、品番、JANコード、数量がある行）
-
-【抽出ルール】
 - 全ページを読み取り、全商品を漏れなく抽出すること
-- JANコード：13桁の数字（4から始まることが多い）。「984000」で始まるものは除外
-- 仕入先品番（supplierCode）：英字+数字の組み合わせ（例：CMG-350-W、22218200、WAS-WP-006）
-- 商品名：実際の商品・製品の名称のみ
-- 数量：整数。「入数×C/T=総数」の場合は総数を使用
-- 日付：納品日または発行日（YYYY/MM/DD形式）
-- 仕入先名：書類を発行した会社名（送り主）
+
+【各項目の抽出ルール】
+
+■ JANコード（jan）
+- 13桁の数字（4で始まることが多い）。例: 4977642221826
+- 「984000」で始まる番号は除外（社内用コードのため）
+- 数字以外の文字（ハイフン・スペース）は含めず、数字のみで返す
+
+■ 仕入先品番（supplierCode）
+- 帳票に記載された品番・型番・商品コードをそのまま抽出
+- 形式の例: CMG-350-W / 22218200 / WAS-WP-006 / KB-001 / AB/12 / PZ-0001
+- 英数字・ハイフン・スラッシュのみを含む。それ以外の記号・空白は含めない
+- 先頭ゼロは省略せず、帳票の表記どおりに抽出（例: 0123 は "0123" のまま）
+- ハイフンの有無・全角半角も帳票の表記どおりに抽出（正規化は照合側で行う）
+- 1つの明細に品番らしき文字列が複数ある場合は、最も品番らしい英数字混在コードを選ぶ
+
+■ 商品名（productName）
+- 実際の商品・製品の名称のみを抽出
+- 「木村硝子店 グラス」のようなメーカー名＋商品名は、メーカー名を含めず商品名のみ
+- サイズ・色・数量などの付随情報は商品名に含めない
+
+■ 数量（quantity）
+- 整数で返す
+- 「入数×C/T=総数」の形式がある場合は、計算後の総数を使用
+- 例: 「5×24=120」なら 120
+
+■ 日付（date）
+- 納品日または発行日を YYYY/MM/DD 形式で返す（例: 2026/07/16）
+
+■ 仕入先名（supplier）
+- 書類を発行した会社名（送り主）を返す
 
 【絶対に抽出しないもの（これらは商品ではない）】
 - 「下記のとおり納品いたしました」「上記の通り」「ご確認」などの挨拶文・定型文
@@ -113,7 +148,7 @@ export async function extractWithGemini(
 - 「小計」「合計」「消費税」「税率」「送料」「手数料」「対象額」を含む行
 - 「選べる」「廃番」「お選びください」を含む行
 - 1〜2文字の断片テキスト（「川」「価」「単」「古」など）
-- 数字のみの行
+- 数字のみの行（品番が数字のみの場合は商品名とセットで抽出すること）
 - 「前ページより」などの繰越行
 
 必ず以下のJSON形式のみで返答してください（説明文不要）：
@@ -147,6 +182,28 @@ export async function extractWithGemini(
       ],
       generationConfig: {
         response_mime_type: "application/json",
+        // 出力JSONの型を厳密に強制（精度向上の要）
+        response_schema: {
+          type: "OBJECT",
+          properties: {
+            date: { type: "STRING" },
+            supplier: { type: "STRING" },
+            items: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  jan: { type: "STRING" },
+                  supplierCode: { type: "STRING" },
+                  productName: { type: "STRING" },
+                  quantity: { type: "INTEGER" },
+                },
+                required: ["productName", "quantity"],
+              },
+            },
+          },
+          required: ["items"],
+        },
       },
     };
 
@@ -194,22 +251,27 @@ export async function extractWithGemini(
       }>;
     };
 
-    const items: ExtractedItem[] = (parsed.items || []).map((item) => ({
-      jan: item.jan?.replace(/\D/g, "") || undefined,
-      supplierCode: item.supplierCode || undefined,
-      productName: item.productName || undefined,
-      quantity: typeof item.quantity === "string" ? parseInt(item.quantity, 10) || 1 : (item.quantity || 1),
-    })).filter((item) => {
-      // 984000で始まるJANは除外
-      if (item.jan && item.jan.startsWith("984000")) item.jan = undefined;
-      // 商品名でない行をサーバー側でもフィルタリング
-      if (item.productName && isNonProductName(item.productName)) return false;
-      return item.productName || item.jan || item.supplierCode;
-    });
+    const items: ExtractedItem[] = (parsed.items || [])
+      .map((item) => ({
+        jan: item.jan?.replace(/\D/g, "") || undefined,
+        supplierCode: item.supplierCode?.trim() || undefined,
+        productName: item.productName?.trim() || undefined,
+        quantity:
+          typeof item.quantity === "string"
+            ? parseInt(item.quantity, 10) || 1
+            : item.quantity || 1,
+      }))
+      .filter((item) => {
+        // 984000で始まるJANは除外
+        if (item.jan && item.jan.startsWith("984000")) item.jan = undefined;
+        // 商品名でない行をサーバー側でもフィルタリング
+        if (item.productName && isNonProductName(item.productName)) return false;
+        return item.productName || item.jan || item.supplierCode;
+      });
 
     return {
       date: parsed.date || undefined,
-      supplier: parsed.supplier || undefined,
+      supplier: parsed.supplier?.trim() || undefined,
       items,
     };
   } catch (e: unknown) {

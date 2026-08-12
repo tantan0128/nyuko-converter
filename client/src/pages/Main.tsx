@@ -355,7 +355,7 @@ export default function Main() {
           <div className="flex items-center justify-between h-14">
             <div className="flex items-center gap-4">
               <div className="w-6 h-6 bg-[oklch(0.48_0.22_27)]" />
-              <span className="text-sm font-black tracking-tight uppercase">入庫変換アプリ</span>
+              <span className="text-sm font-black tracking-tight uppercase">納品書→在庫入力csv作成</span>
             </div>
             <div className="flex items-center gap-4">
               <Link

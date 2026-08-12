@@ -43,7 +43,7 @@ export default function Login() {
           <div className="md:hidden flex items-center gap-3 mb-12">
             <div className="w-8 h-8 bg-[oklch(0.48_0.22_27)]" />
             <span className="text-xl font-black tracking-tight" style={{ fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif" }}>
-              入庫変換アプリ
+              納品書→在庫入力csv作成
             </span>
           </div>
 
