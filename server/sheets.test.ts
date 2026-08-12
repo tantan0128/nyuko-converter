@@ -19,6 +19,8 @@ const sampleProducts = [
   { jan: "", code: "km-001", nameKeywords: "木村硝子店 グラス", deliveryKeywords: "木村硝子 グラス 001", supplier: "木村硝子店" },
   { jan: "", code: "sa-5678", nameKeywords: "三陽エース ドリッパー", deliveryKeywords: "DRIP-S, ドリッパーS", supplier: "三陽エース" },
   { jan: "", code: "sa-9999", nameKeywords: "三陽エース 抹茶碗", deliveryKeywords: "MATCHA-1", supplier: "三陽エース" },
+  { jan: "’4901234567894", code: "JSN005", nameKeywords: "アポストロフィ付き 商品", deliveryKeywords: "", supplier: "" },
+  { jan: "'4901234567895", code: "JSN006", nameKeywords: "半角アポストロフィ付き 商品", deliveryKeywords: "", supplier: "" },
 ];
 
 describe("matchByJan", () => {
@@ -36,6 +38,14 @@ describe("matchByJan", () => {
 
   it("空文字はnullを返す", () => {
     expect(matchByJan("", sampleProducts)).toBeNull();
+  });
+
+  it("DB側JANの全角アポストロフィ（エクセル先頭ゼロ対策）を正規化して一致する", () => {
+    expect(matchByJan("4901234567894", sampleProducts)).toBe("JSN005");
+  });
+
+  it("DB側JANの半角アポストロフィも正規化して一致する", () => {
+    expect(matchByJan("4901234567895", sampleProducts)).toBe("JSN006");
   });
 });
 

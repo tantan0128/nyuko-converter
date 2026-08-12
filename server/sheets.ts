@@ -299,7 +299,8 @@ export async function fetchFromSpreadsheet(): Promise<ProductRecord[]> {
   const result: ProductRecord[] = [];
 
   for (const row of rows) {
-    const jan = String(row[0] || "").trim().replace(/^'/, "");
+    // エクセルの先頭ゼロ対策で付くアポストロフィ類（半角' 全角’ U+2019等）を除去
+    const jan = String(row[0] || "").trim().replace(/^['’‘`´ʼ]+/, "").trim();
     const code = String(row[1] || "").trim();
     const nameKeywords = String(row[2] || "").trim();
     const deliveryKeywords = String(row[3] || "").trim();
@@ -578,8 +579,10 @@ export function matchByJan(
 ): string | null {
   if (!jan || jan.length < 8) return null;
   const normalized = jan.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+  // DB側のJANも正規化（エクセルの先頭ゼロ対策で付くアポストロフィ類を除去）
+  const normJan = (s: string) => (s || "").replace(/^['’‘`´ʼ]+/, "").replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
   const candidates = supplierName ? filterBySupplier(products, supplierName) : products;
-  const found = candidates.find((p) => p.jan === normalized);
+  const found = candidates.find((p) => normJan(p.jan) === normalized);
   return found?.code || null;
 }
 
