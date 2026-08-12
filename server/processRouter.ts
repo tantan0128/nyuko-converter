@@ -62,17 +62,17 @@ router.post("/process", upload.array("files", 20), async (req, res) => {
     const mergedRows = mergeRowsByCode(allRows);
     logs.push(`合算後: ${mergedRows.length}件（合算前: ${allRows.length}件）`);
 
-    // 仕入先名を正規化してCSVファイル名に使える形にする
-    // （「株式会社 三陽エース」→「三陽エース」など）
+    // 仕入先名の解決:
+    // 1. OCR抽出した仕入先名を正規化（「株式会社 三陽エース」→「三陽エース」）
+    // 2. 照合済みコードのプレフィックスから逆引きした名前を優先（RAKUMART等の誤検出を防ぐ）
     if (detectedSupplier) {
       const normalized = normalizeSupplierName(detectedSupplier);
       if (normalized) detectedSupplier = normalized;
     }
-    // 仕入先名が検出できなかった場合は、照合済み商品コードのプレフィックスから逆引き
-    if (!detectedSupplier && mergedRows.length > 0) {
+    if (mergedRows.length > 0) {
       const code = mergedRows[0].code;
       const fromCode = supplierNameFromCode(code);
-      if (fromCode) detectedSupplier = fromCode;
+      if (fromCode) detectedSupplier = fromCode; // コード由来の名前を優先
     }
 
     res.json({ rows: mergedRows, notFound, errors, logs, supplier: detectedSupplier });

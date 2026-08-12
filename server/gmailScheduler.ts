@@ -4,7 +4,7 @@
  */
 import express from "express";
 import { fetchUnprocessedPdfEmails, markAsProcessed, testGmailConnection } from "./gmail";
-import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, VENDOR_CODE_TO_NAME } from "./sheets";
+import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, VENDOR_CODE_TO_NAME, normalizeSupplierName } from "./sheets";
 import { extractWithGemini, ExtractedItem } from "./ocr";
 import { getDb } from "./db";
 import { gmailJobs } from "../drizzle/schema";
@@ -272,8 +272,16 @@ export async function processGmailPdfs(): Promise<{
       // 同一コードの数量合算
       const mergedRows = mergeRowsByCode(rows);
 
-      // OCRで会社名が取れなかった場合、照合済みコード（ok-xxxなど）からベンダープレフィックスを逆引き
-      if (!extracted.supplier && rows.length > 0) {
+      // 仕入先名の解決:
+      // 1. OCR抽出した仕入先名が既知リストに一致すれば採用
+      // 2. 既知リストに一致しない（RAKUMART等の誤検出）場合は、照合済みコードからプレフィックスを逆引きして採用
+      let resolvedSupplier = "";
+      if (extracted.supplier) {
+        const normalized = normalizeSupplierName(extracted.supplier);
+        if (normalized) resolvedSupplier = normalized;
+      }
+      // 逆引きフォールバック（常に実行。誤検出名よりもコード由来の方が信頼できる）
+      if (rows.length > 0) {
         const matchedPrefixCounts: Record<string, number> = {};
         for (const row of rows) {
           const m = row.code.match(/^([a-z]{2,3})-/i);
@@ -284,8 +292,13 @@ export async function processGmailPdfs(): Promise<{
         }
         const topMatchedPrefix = Object.entries(matchedPrefixCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
         if (topMatchedPrefix && VENDOR_CODE_TO_NAME[topMatchedPrefix]) {
-          extracted = { ...extracted, supplier: VENDOR_CODE_TO_NAME[topMatchedPrefix] };
+          const fromCode = VENDOR_CODE_TO_NAME[topMatchedPrefix];
+          // コード由来の名前を優先（RAKUMART等の誤検出を防ぐ）
+          resolvedSupplier = fromCode;
         }
+      }
+      if (resolvedSupplier) {
+        extracted = { ...extracted, supplier: resolvedSupplier };
       }
 
       // CSV生成（備考列に仕入れ元名を追加）

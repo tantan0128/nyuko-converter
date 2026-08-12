@@ -101,6 +101,7 @@ export const VENDOR_CODE_TO_NAME: Record<string, string> = {
   co: "コーンズ",
   fe: "株式会社シンドー",
   an: "アンツ",
+  ih: "市原木工所",
 };
 
 // 仕入元プレフィックスと仕入先名のマッピング（照合用キーワード）
@@ -157,6 +158,7 @@ export const SUPPLIER_PREFIX_MAP: Record<string, string[]> = {
   fe: ["シンドー", "shindo"],
   an: ["アンツ", "antz"],
   mx: ["メルクロス", "merclos", "melcross"],
+  ih: ["市原木工所", "ichihara"],
 };
 
 /** 仕入先名からプレフィックスを推定 */
