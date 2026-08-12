@@ -4,7 +4,7 @@
  */
 import express from "express";
 import { fetchUnprocessedPdfEmails, markAsProcessed, testGmailConnection } from "./gmail";
-import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, VENDOR_CODE_TO_NAME, normalizeSupplierName } from "./sheets";
+import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, VENDOR_CODE_TO_NAME, normalizeSupplierName, supplierNameFromMaster } from "./sheets";
 import { extractWithGemini, ExtractedItem } from "./ocr";
 import { getDb } from "./db";
 import { gmailJobs } from "../drizzle/schema";
@@ -273,28 +273,33 @@ export async function processGmailPdfs(): Promise<{
       const mergedRows = mergeRowsByCode(rows);
 
       // 仕入先名の解決:
-      // 1. OCR抽出した仕入先名が既知リストに一致すれば採用
-      // 2. 既知リストに一致しない（RAKUMART等の誤検出）場合は、照合済みコードからプレフィックスを逆引きして採用
+      // 1. OCR抽出した仕入先名を正規化
+      // 2. 照合済み商品コードのE列（仕入れ先）の実データを最優先（ユーザー指定）
+      // 3. E列が空の場合はプレフィックス逆引き（RAKUMART等の誤検出対策）
       let resolvedSupplier = "";
       if (extracted.supplier) {
         const normalized = normalizeSupplierName(extracted.supplier);
         if (normalized) resolvedSupplier = normalized;
       }
-      // 逆引きフォールバック（常に実行。誤検出名よりもコード由来の方が信頼できる）
+      // E列の実データを最優先（CSV出力の名前は必ずE列から）
       if (rows.length > 0) {
-        const matchedPrefixCounts: Record<string, number> = {};
-        for (const row of rows) {
-          const m = row.code.match(/^([a-z]{2,3})-/i);
-          if (m) {
-            const p = m[1].toLowerCase();
-            matchedPrefixCounts[p] = (matchedPrefixCounts[p] || 0) + 1;
+        const fromMaster = supplierNameFromMaster(rows[0].code, products);
+        if (fromMaster) {
+          resolvedSupplier = fromMaster;
+        } else {
+          // E列が空の場合はプレフィックス逆引き
+          const matchedPrefixCounts: Record<string, number> = {};
+          for (const row of rows) {
+            const m = row.code.match(/^([a-z]{2,3})-/i);
+            if (m) {
+              const p = m[1].toLowerCase();
+              matchedPrefixCounts[p] = (matchedPrefixCounts[p] || 0) + 1;
+            }
           }
-        }
-        const topMatchedPrefix = Object.entries(matchedPrefixCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
-        if (topMatchedPrefix && VENDOR_CODE_TO_NAME[topMatchedPrefix]) {
-          const fromCode = VENDOR_CODE_TO_NAME[topMatchedPrefix];
-          // コード由来の名前を優先（RAKUMART等の誤検出を防ぐ）
-          resolvedSupplier = fromCode;
+          const topMatchedPrefix = Object.entries(matchedPrefixCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+          if (topMatchedPrefix && VENDOR_CODE_TO_NAME[topMatchedPrefix]) {
+            resolvedSupplier = VENDOR_CODE_TO_NAME[topMatchedPrefix];
+          }
         }
       }
       if (resolvedSupplier) {

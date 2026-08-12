@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import iconv from "iconv-lite";
 import { extractWithGemini } from "./ocr";
-import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, normalizeSupplierName, supplierNameFromCode, appendDeliveryKeyword, appendKeywordByName, fetchJunidouList } from "./sheets";
+import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, normalizeSupplierName, supplierNameFromMaster, appendDeliveryKeyword, appendKeywordByName, fetchJunidouList } from "./sheets";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -64,15 +64,16 @@ router.post("/process", upload.array("files", 20), async (req, res) => {
 
     // 仕入先名の解決:
     // 1. OCR抽出した仕入先名を正規化（「株式会社 三陽エース」→「三陽エース」）
-    // 2. 照合済みコードのプレフィックスから逆引きした名前を優先（RAKUMART等の誤検出を防ぐ）
+    // 2. 照合済み商品コードのE列（仕入れ先）の実データを最優先（ユーザー指定）
+    // 3. E列が空の場合はプレフィックス逆引き（RAKUMART等の誤検出対策）
     if (detectedSupplier) {
       const normalized = normalizeSupplierName(detectedSupplier);
       if (normalized) detectedSupplier = normalized;
     }
     if (mergedRows.length > 0) {
       const code = mergedRows[0].code;
-      const fromCode = supplierNameFromCode(code);
-      if (fromCode) detectedSupplier = fromCode; // コード由来の名前を優先
+      const fromMaster = supplierNameFromMaster(code, products);
+      if (fromMaster) detectedSupplier = fromMaster; // E列の実データを最優先
     }
 
     res.json({ rows: mergedRows, notFound, errors, logs, supplier: detectedSupplier });

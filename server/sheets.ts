@@ -41,8 +41,8 @@ export const VENDOR_CODE_TO_NAME: Record<string, string> = {
   gt: "我戸幹男商店",
   sa: "三陽エース",
   ok: "オクムラ",
-  nk: "中川政七",
-  yy: "山善",
+  nk: "二光社",
+  yy: "ワイヨット",
   az: "東谷",
   sk: "酒井",
   ww: "ダブリュー",
@@ -62,7 +62,7 @@ export const VENDOR_CODE_TO_NAME: Record<string, string> = {
   iz: "インターゼロ",
   wb: "草土",
   yu: "ユープロダクツ",
-  mh: "前原光栄商店",
+  mh: "前原光榮商店",
   km: "木村硝子店",
   mz: "丸全",
   su: "伊藤泰三",
@@ -73,7 +73,7 @@ export const VENDOR_CODE_TO_NAME: Record<string, string> = {
   sb: "三彩工房",
   ss: "招徳酒造",
   si: "賞美堂",
-  sn: "ソニック",
+  sn: "ソニック 炭谷三郎商店",
   nn: "中野科学",
   nb: "ノボル電機",
   tm: "九十九",
@@ -81,10 +81,10 @@ export const VENDOR_CODE_TO_NAME: Record<string, string> = {
   ch: "シラキ工芸",
   ap: "アピデ",
   fd: "エフディー",
-  tw: "TEN-TWO",
+  tw: "十二堂",
   kf: "公長斎小菅",
   kt: "公長斎小菅",
-  yi: "山一",
+  yi: "ユミトルインポート",
   mx: "メルクロス",
   ca: "カサラゴ",
   fj: "フジキ工芸",
@@ -110,11 +110,11 @@ export const SUPPLIER_PREFIX_MAP: Record<string, string[]> = {
   ok: ["オクムラ", "奥村", "okumura", "リバーライト"],
   sa: ["三陽", "sanyo", "さんよう", "三陽エース"],
   th: ["クラスアップ", "classup", "class up", "TOHO"],
-  yy: ["ワイヨット", "山善", "wayot", "yamaze"],
+  yy: ["ワイヨット", "wayot"],
   id: ["イシダ", "石田", "ishida"],
   sd: ["塩見", "塩見団扇", "shiomi"],
   pz: ["Phezzan", "フェザーン", "phezzan"],
-  nk: ["中川", "nakagawa", "中川政七"],
+  nk: ["二光社", "nikosha"],
   du: ["ダルトン", "dalton"],
   kf: ["公長斎", "小菅", "kohchosai"],
   kt: ["公長斎", "小菅", "kohchosai"],
@@ -138,14 +138,16 @@ export const SUPPLIER_PREFIX_MAP: Record<string, string[]> = {
   sm: ["サム企画", "sam"],
   ac: ["アミナ", "amina"],
   og: ["扇や", "半げしょう", "hangesho"],
-  mh: ["前原", "maehara"],
+  mh: ["前原", "前原光榮商店", "maehara"],
   km: ["木村硝子", "kimura"],
   ap: ["アピデ", "apide"],
   mc: ["マスターズ", "masters"],
   fo: ["フォームレディ", "form lady"],
   mz: ["丸全", "maruzen"],
   fd: ["エフディー", "fd"],
-  tw: ["TEN-TWO", "ten two"],
+  tw: ["十二堂", "TEN-TWO", "ten two"],
+  yi: ["ユミトルインポート", "yumitoru"],
+  sn: ["ソニック", "炭谷三郎商店", "sonic"],
   br: ["ブランシュアソシエ", "blanche"],
   cr: ["コレド", "coledo"],
   kn: ["カク仲", "kakunaka"],
@@ -218,6 +220,21 @@ export function supplierNameFromCode(code: string): string | null {
   if (!m) return null;
   const prefix = m[1].toLowerCase();
   return VENDOR_CODE_TO_NAME[prefix] || null;
+}
+
+/**
+ * 商品コードから商品マスターのE列（仕入れ先）の値を取得する。
+ * CSV出力時の仕入先名は必ずE列の実データを優先する（ユーザー指定）。
+ * E列が空の場合は、プレフィックス逆引きにフォールバック。
+ */
+export function supplierNameFromMaster(
+  code: string,
+  products: ProductRecord[]
+): string | null {
+  if (!code) return null;
+  const found = products.find((p) => p.code === code);
+  if (found && found.supplier) return found.supplier;
+  return supplierNameFromCode(code);
 }
 
 // メモリキャッシュ（DB読み込み結果）
