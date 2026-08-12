@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchByJan, matchByName } from "./sheets";
+import { matchByJan, matchByName, VENDOR_CODE_TO_NAME } from "./sheets";
 
 const sampleProducts = [
   { jan: "4901234567890", code: "JSN001", nameKeywords: "テスト商品 100g" },
@@ -23,6 +23,48 @@ describe("matchByJan", () => {
 
   it("空文字はnullを返す", () => {
     expect(matchByJan("", sampleProducts)).toBeNull();
+  });
+});
+
+describe("VENDOR_CODE_TO_NAME", () => {
+  it("ユーザー確認済みのcr接頭辞をコレドへ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.cr).toBe("コレド");
+  });
+
+  it("ユーザー確認済みのbr接頭辞をブランシュアソシエへ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.br).toBe("ブランシュアソシエ");
+  });
+
+  it("ユーザー確認済みのoi接頭辞を片力商事へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.oi).toBe("片力商事");
+  });
+
+  it("ユーザー確認済みのkn接頭辞をカク仲へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.kn).toBe("カク仲");
+  });
+
+  it("ユーザー確認済みのnf接頭辞をネ・ルフレへ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.nf).toBe("ネ・ルフレ");
+  });
+
+  it("ユーザー確認済みのkt接頭辞を公長斎小菅へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.kt).toBe("公長斎小菅");
+  });
+
+  it("ユーザー確認済みのkw接頭辞をカワイへ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.kw).toBe("カワイ");
+  });
+
+  it("ユーザー確認済みのsl接頭辞をサンライフへ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.sl).toBe("サンライフ");
+  });
+
+  it("ユーザー確認済みのks接頭辞を京千へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.ks).toBe("京千");
+  });
+
+  it("ユーザー確認済みのmx接頭辞をメルクロスへ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.mx).toBe("メルクロス");
   });
 });
 
