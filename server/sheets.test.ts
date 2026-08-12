@@ -66,6 +66,50 @@ describe("VENDOR_CODE_TO_NAME", () => {
   it("ユーザー確認済みのmx接頭辞をメルクロスへ対応付ける", () => {
     expect(VENDOR_CODE_TO_NAME.mx).toBe("メルクロス");
   });
+
+  it("ユーザー確認済みのnk接頭辞を二光社へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.nk).toBe("二光社");
+  });
+
+  it("ユーザー確認済みのwc接頭辞を若兆へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.wc).toBe("若兆");
+  });
+
+  it("ユーザー確認済みのie接頭辞を家田紙工へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.ie).toBe("家田紙工");
+  });
+
+  it("ユーザー確認済みのyy接頭辞をワイヨットへ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.yy).toBe("ワイヨット");
+  });
+
+  it("ユーザー確認済みのmk接頭辞を前謙へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.mk).toBe("前謙");
+  });
+
+  it("未確認のsg接頭辞は自動対応表に含めない", () => {
+    expect(VENDOR_CODE_TO_NAME.sg).toBeUndefined();
+  });
+
+  it("ユーザー確認済みのms接頭辞をミランダスタイルへ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.ms).toBe("ミランダスタイル");
+  });
+
+  it("ユーザー確認済みのiq接頭辞を一久へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.iq).toBe("一久");
+  });
+
+  it("ユーザー確認済みのsc接頭辞を瀬戸刃物へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.sc).toBe("瀬戸刃物");
+  });
+
+  it("ユーザー確認済みのyi接頭辞をユミトルインポートへ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.yi).toBe("ユミトルインポート");
+  });
+
+  it("ユーザー確認済みのtw接頭辞を十二堂へ対応付ける", () => {
+    expect(VENDOR_CODE_TO_NAME.tw).toBe("十二堂");
+  });
 });
 
 describe("matchByName", () => {
