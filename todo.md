@@ -145,3 +145,9 @@
 ## D列登録バグ修正（2026-07-23）
 - [x] GmailJobs.tsxのregisterKeyword関数を修正：labelから商品名と品番を分離して送信
 - [x] バックエンドのregister-keywordエンドポイントを修正：商品名で検索して品番をD列に登録
+
+## アプリ全容資料
+- [x] 目的・業務フロー・画面・データ・外部連携・処理ロジック・運用・既知課題をまとめたアプリ全容資料を作成
+
+## 保守性改善
+- [x] Gemini API直接呼び出し化で不要になったocrWithDocumentAIのimportをGmailスケジューラーと手動処理ルーターから削除し、TypeScriptエラーを解消
