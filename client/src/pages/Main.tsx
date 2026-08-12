@@ -36,6 +36,8 @@ interface NotFoundItem {
   label: string;       // 表示用ラベル
   productName: string; // 商品名（照合用）
   quantity: number;
+  supplierCode?: string;
+  jan?: string;
 }
 
 interface ProcessResult {
@@ -94,6 +96,7 @@ export default function Main() {
   const [modal, setModal] = useState<KeywordModalState>({
     open: false, productName: "", keyword: "", code: "", registering: false
   });
+  const [notFoundModal, setNotFoundModal] = useState<{ open: boolean; items: NotFoundItem[] }>({ open: false, items: [] });
   const [productCodes, setProductCodes] = useState<{code: string; name: string}[]>([]);
   const [gmailJobs, setGmailJobs] = useState<GmailJob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -203,6 +206,12 @@ export default function Main() {
         } else {
           toast.warning("変換できるデータがありませんでした");
         }
+
+        // 未照合（紐づけできなかった）商品がある場合は必ず別ウィンドウで表示
+        if (data.notFound.length > 0) {
+          setNotFoundModal({ open: true, items: data.notFound });
+          toast.warning(`⚠ 未登録商品が ${data.notFound.length}件あります`);
+        }
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "処理に失敗しました";
@@ -238,6 +247,13 @@ export default function Main() {
 
   useEffect(() => { fetchGmailJobs(); }, [fetchGmailJobs]);
 
+  // CSVファイル名に使える形にサニタイズ（ファイル名不適切文字を除去）
+  const sanitizeFileName = (s: string) =>
+    s
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "")
+      .replace(/\s+/g, "")
+      .trim();
+
   const downloadGmailJobCsv = async (job: GmailJob) => {
     if (!job.csvContent) { toast.error("CSVデータがありません"); return; }
     const bom = "\uFEFF";
@@ -247,7 +263,7 @@ export default function Main() {
     const d = new Date(job.processedAt);
     const mmdd = `${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
     a.href = url;
-    a.download = `助ネコ在庫up${job.supplier || ""}${mmdd}.csv`;
+    a.download = `助ネコ在庫up${sanitizeFileName(job.supplier || "")}${mmdd}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     // ダウンロード済みを記録して一覧を更新
@@ -256,7 +272,10 @@ export default function Main() {
   };
 
   const openModal = (item: NotFoundItem) => {
-    setModal({ open: true, productName: item.productName, keyword: item.productName, code: "", registering: false });
+    // D列に登録するキーワードは精度が高いものを優先: 仕入先品番 > JAN > 商品名
+    const keyword = item.supplierCode || item.jan || item.productName;
+    setModal({ open: true, productName: item.productName, keyword, code: "", registering: false });
+    setNotFoundModal({ open: false, items: [] });
   };
 
   const handleRegisterKeyword = async () => {
@@ -300,7 +319,7 @@ export default function Main() {
     a.href = url;
     const now = new Date();
     const mmdd = `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-    const supplierPart = result.supplier ? result.supplier : "";
+    const supplierPart = result.supplier ? sanitizeFileName(result.supplier) : "";
     a.download = `助ネコ在庫up${supplierPart}${mmdd}.csv`;
     a.click();
     URL.revokeObjectURL(url);
@@ -661,29 +680,60 @@ export default function Main() {
                   </div>
                 )}
 
-                {/* Not found — キーワード登録ボタン付き */}
+                {/* Not found — 別ウィンドウ表示ボタン */}
                 {result.notFound.length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold tracking-[0.15em] uppercase text-[oklch(0.48_0.22_27)] mb-2">
-                      未登録商品 ({result.notFound.length}件)
-                    </p>
-                    <div className="h-px bg-[oklch(0.48_0.22_27)] mb-3" />
-                    <p className="text-xs text-gray-400 mb-3">
-                      「登録」ボタンで納品書キーワードを登録すると、次回から自動照合されます
-                    </p>
-                    <div className="space-y-1">
-                      {result.notFound.map((item, i) => (
-                        <div key={i} className="flex items-center gap-2 py-1.5 border-b border-black/10">
-                          <span className="w-4 h-4 bg-[oklch(0.48_0.22_27)] flex-shrink-0" />
-                          <span className="text-xs text-gray-700 flex-1">{item.label} <span className="text-gray-400">(数量:{item.quantity})</span></span>
-                          <button
-                            onClick={() => openModal(item)}
-                            className="text-xs border border-black px-2 py-0.5 hover:bg-black hover:text-white transition-colors flex-shrink-0 font-bold"
-                          >
-                            登録
-                          </button>
+                  <button
+                    onClick={() => setNotFoundModal({ open: true, items: result.notFound })}
+                    className="w-full border-2 border-[oklch(0.48_0.22_27)] text-[oklch(0.48_0.22_27)] py-3 text-sm font-black hover:bg-[oklch(0.48_0.22_27)] hover:text-white transition-colors"
+                  >
+                    ⚠ 未登録商品 {result.notFound.length}件を確認
+                  </button>
+                )}
+
+                {/* 未照合商品の別ウィンドウ表示（必ず出す） */}
+                {notFoundModal.open && (
+                  <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white border-2 border-black w-full max-w-lg flex flex-col max-h-[85vh]">
+                      <div className="flex items-center justify-between p-4 border-b border-black">
+                        <div>
+                          <p className="text-sm font-black tracking-[0.1em] uppercase text-[oklch(0.48_0.22_27)]">
+                            ⚠ 未登録商品（照合できませんでした）
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {notFoundModal.items.length}件 — 原本と商品マスターを確認し、D列キーワードを登録すると次回から自動照合されます
+                          </p>
                         </div>
-                      ))}
+                        <button
+                          onClick={() => setNotFoundModal({ open: false, items: [] })}
+                          className="text-gray-400 hover:text-black text-lg ml-4"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div className="overflow-y-auto p-4 space-y-1">
+                        {notFoundModal.items.map((item, i) => (
+                          <div key={i} className="flex items-center gap-2 py-1.5 border-b border-black/10">
+                            <span className="w-4 h-4 bg-[oklch(0.48_0.22_27)] flex-shrink-0" />
+                            <span className="text-xs text-gray-700 flex-1">
+                              {item.label} <span className="text-gray-400">(数量:{item.quantity})</span>
+                            </span>
+                            <button
+                              onClick={() => openModal(item)}
+                              className="text-xs border border-black px-2 py-0.5 hover:bg-black hover:text-white transition-colors flex-shrink-0 font-bold"
+                            >
+                              登録
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="p-4 border-t border-black">
+                        <button
+                          onClick={() => setNotFoundModal({ open: false, items: [] })}
+                          className="w-full bg-black text-white py-2 text-sm font-bold hover:bg-gray-800 transition-colors"
+                        >
+                          閉じる
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

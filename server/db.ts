@@ -1,15 +1,56 @@
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import Database from "better-sqlite3";
+import { existsSync, mkdirSync } from "fs";
+import path from "path";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+function getDbPath(): string {
+  const fromEnv = process.env.DATABASE_PATH;
+  if (fromEnv) return fromEnv;
+  // デフォルト: リポジトリ直下の data/nyuko.db
+  const dataDir = path.resolve(import.meta.dirname, "..", "data");
+  if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
+  return path.join(dataDir, "nyuko.db");
+}
+
+/**
+ * SQLite接続を遅延生成する（Drizzle + better-sqlite3）
+ * ローカルツール・テストはDBなしでも動く
+ */
+export function getDb() {
+  if (!_db) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const sqlite = new Database(getDbPath());
+      sqlite.pragma("journal_mode = WAL");
+      // テーブル自動作成（スキーマと同期）
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS products (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          jan TEXT NOT NULL DEFAULT '',
+          code TEXT NOT NULL,
+          nameKeywords TEXT NOT NULL DEFAULT '',
+          deliveryKeywords TEXT NOT NULL DEFAULT '',
+          supplier TEXT NOT NULL DEFAULT '',
+          syncedAt TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS gmail_jobs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          messageId TEXT NOT NULL,
+          subject TEXT NOT NULL DEFAULT '',
+          fromEmail TEXT NOT NULL DEFAULT '',
+          filename TEXT NOT NULL DEFAULT '',
+          processedAt TEXT NOT NULL,
+          rowCount INTEGER NOT NULL DEFAULT 0,
+          notFoundCount INTEGER NOT NULL DEFAULT 0,
+          csvContent TEXT,
+          notFoundContent TEXT,
+          supplier TEXT,
+          status TEXT NOT NULL DEFAULT 'done',
+          downloadedAt TEXT
+        );
+      `);
+      _db = drizzle(sqlite);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -17,76 +58,3 @@ export async function getDb() {
   }
   return _db;
 }
-
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
-
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
-
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
-}
-
-export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
-}
-
-// TODO: add feature queries here as your schema grows.

@@ -208,13 +208,14 @@ export async function processGmailPdfs(): Promise<{
       const dateStr = extracted.date || formatDate(new Date());
       const rows: Array<{ code: string; stockType: string; quantity: number; date: string; time: string; note: string }> = [];
       const notFoundItems: Array<{ label: string; quantity: number }> = [];
+      const detectedSupplierName = extracted.supplier || undefined;
 
       for (const item of extracted.items) {
         if (item.quantity <= 0) continue;
         let code: string | null = null;
         let matchedByJan = false;
 
-        // ステップ1: JAN完全一致
+        // ステップ1: JAN完全一致（一意キーなので絞り込みしない）
         if (item.jan && item.jan.length >= 8) {
           code = matchByJan(item.jan, products);
           if (code) matchedByJan = true;
@@ -225,12 +226,22 @@ export async function processGmailPdfs(): Promise<{
 
         // ステップ2: 仕入先品番コードで照合（JANがあるのに未登録の場合はスキップ）
         if (!code && item.supplierCode && !hasJanCode) {
-          code = matchBySupplierCode(item.supplierCode, products, supplierPrefix ?? undefined);
+          code = matchBySupplierCode(
+            item.supplierCode,
+            products,
+            supplierPrefix ?? undefined,
+            detectedSupplierName
+          );
         }
 
-        // ステップ3: 仕入元絞り込みで商品名照合（JANがあるのに未登録の場合はスキップ）
-        if (!code && item.productName && supplierPrefix && !hasJanCode) {
-          code = matchByName(item.productName, products, supplierPrefix);
+        // ステップ3: 仕入先絞り込みで商品名照合（JANがあるのに未登録の場合はスキップ）
+        if (!code && item.productName && !hasJanCode) {
+          code = matchByName(
+            item.productName,
+            products,
+            supplierPrefix ?? undefined,
+            detectedSupplierName
+          );
         }
 
         // ステップ4: 全体から商品名照合（JANがあるのに未登録の場合はスキップ）
@@ -240,9 +251,10 @@ export async function processGmailPdfs(): Promise<{
 
         if (code) {
           rows.push({ code, stockType: "通常在庫", quantity: item.quantity, date: dateStr, time: "00:00", note: "" });
-          // JANコード以外で照合成功した場合、D列にキーワードを自動記入
-          if (!matchedByJan && item.productName) {
-            appendDeliveryKeyword(code, item.productName).catch((e) =>
+          // 品番で照合成功した場合のみ、その品番をD列に自動追記する（学習）。
+          // 商品名（あいまい照合）での自動追記は誤照合の自己増殖を防ぐため行わない。
+          if (!matchedByJan && item.supplierCode) {
+            appendDeliveryKeyword(code, item.supplierCode).catch((e) =>
               console.warn(`[gmail] D列記入スキップ: ${e instanceof Error ? e.message : String(e)}`)
             );
           }

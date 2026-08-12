@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import iconv from "iconv-lite";
 import { extractWithGemini } from "./ocr";
-import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, appendKeywordByName, fetchJunidouList } from "./sheets";
+import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, normalizeSupplierName, supplierNameFromCode, appendDeliveryKeyword, appendKeywordByName, fetchJunidouList } from "./sheets";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -61,6 +61,19 @@ router.post("/process", upload.array("files", 20), async (req, res) => {
     // 同一コードの数量を合算して1行にまとめる
     const mergedRows = mergeRowsByCode(allRows);
     logs.push(`合算後: ${mergedRows.length}件（合算前: ${allRows.length}件）`);
+
+    // 仕入先名を正規化してCSVファイル名に使える形にする
+    // （「株式会社 三陽エース」→「三陽エース」など）
+    if (detectedSupplier) {
+      const normalized = normalizeSupplierName(detectedSupplier);
+      if (normalized) detectedSupplier = normalized;
+    }
+    // 仕入先名が検出できなかった場合は、照合済み商品コードのプレフィックスから逆引き
+    if (!detectedSupplier && mergedRows.length > 0) {
+      const code = mergedRows[0].code;
+      const fromCode = supplierNameFromCode(code);
+      if (fromCode) detectedSupplier = fromCode;
+    }
 
     res.json({ rows: mergedRows, notFound, errors, logs, supplier: detectedSupplier });
   } catch (e: unknown) {
@@ -123,7 +136,7 @@ async function processImageOrPDF(
     let code: string | null = null;
     let matchedByJan = false;
 
-    // ステップ1: JAN完全一致（最優先）
+    // ステップ1: JAN完全一致（最優先）— JANは一意キーなので絞り込みしない
     if (item.jan && item.jan.length >= 8) {
       code = matchByJan(item.jan, products);
       if (code) {
@@ -138,18 +151,34 @@ async function processImageOrPDF(
     const hasJanCode = !!(item.jan && item.jan.length >= 8);
 
     // ステップ2: 仕入先品番コードで照合（JANがあるのに未登録の場合はスキップ）
+    // 仕入先名（E列）とプレフィックスの両方で絞り込む
     if (!code && item.supplierCode && !hasJanCode) {
-      code = matchBySupplierCode(item.supplierCode, products, supplierPrefix ?? undefined);
+      code = matchBySupplierCode(
+        item.supplierCode,
+        products,
+        supplierPrefix ?? undefined,
+        detectedSupplierName
+      );
       if (code) {
         logs.push(`品番照合成功: ${item.supplierCode} → ${code}`);
       }
     }
 
-    // ステップ3: 仕入元絞り込みで商品名/D列キーワード照合（JANがあるのに未登録の場合はスキップ）
-    if (!code && item.productName && supplierPrefix && !hasJanCode) {
-      code = matchByName(item.productName, products, supplierPrefix);
+    // ステップ3: 仕入先絞り込みで商品名/D列キーワード照合（JANがあるのに未登録の場合はスキップ）
+    if (!code && item.productName && !hasJanCode) {
+      code = matchByName(
+        item.productName,
+        products,
+        supplierPrefix ?? undefined,
+        detectedSupplierName
+      );
       if (code) {
-        logs.push(`商品名照合成功（${supplierPrefix}-絞り込み）: ${item.productName} → ${code}`);
+        const by = supplierPrefix
+          ? `${supplierPrefix}-絞り込み`
+          : detectedSupplierName
+            ? `仕入先「${detectedSupplierName}」絞り込み`
+            : "全体";
+        logs.push(`商品名照合成功（${by}）: ${item.productName} → ${code}`);
       }
     }
 
@@ -163,9 +192,11 @@ async function processImageOrPDF(
 
     if (code) {
       allRows.push(buildRow(code, item.quantity, dateStr));
-      // JANコード以外で照合成功した場合、D列にキーワードを自動記入
-      if (!matchedByJan && item.productName) {
-        appendDeliveryKeyword(code, item.productName).catch((e) =>
+      // 品番で照合成功した場合のみ、その品番をD列に自動追記する（学習）。
+      // 商品名（あいまい照合）での自動追記は誤照合の自己増殖を防ぐため行わない。
+      // JAN照合成功時は追記不要（JANが正本のため）。
+      if (!matchedByJan && item.supplierCode) {
+        appendDeliveryKeyword(code, item.supplierCode).catch((e) =>
           logs.push(`D列記入スキップ: ${e instanceof Error ? e.message : String(e)}`)
         );
       }
@@ -228,17 +259,24 @@ function formatDate(d: Date): string {
  * jan: JANコード（supplierCodeがない場合に使用） */
 router.post("/register-keyword", express.json(), async (req, res) => {
   try {
-    const { keyword, productName, supplierCode, jan } = req.body as {
+    const { keyword, productName, supplierCode, jan, code } = req.body as {
       keyword?: string;
       productName?: string;
       supplierCode?: string;
       jan?: string;
+      code?: string;
     };
 
     // D列に登録するキーワードを決定：supplierCode > jan > keyword の優先順
     const keywordToRegister = (supplierCode || jan || keyword || "").trim();
     if (!keywordToRegister) {
       return res.status(400).json({ ok: false, error: "登録するキーワードがありません" });
+    }
+
+    // 自社コードが指定されている場合は、B列完全一致で確実にその行へ登録する（精度最優先）
+    if (code && code.trim()) {
+      const result = await appendDeliveryKeyword(code.trim(), keywordToRegister);
+      return res.json(result);
     }
 
     const pn = productName?.trim() || undefined;
