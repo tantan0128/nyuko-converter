@@ -3,7 +3,7 @@
  * Heartbeat（5分ごと）でGmailを監視し、PDF添付メールを自動処理する
  */
 import express from "express";
-import { fetchUnprocessedPdfEmails, markAsProcessed, testGmailConnection } from "./gmail";
+import { fetchUnprocessedPdfEmails, markAsProcessed, testGmailConnection, isGmailRateLimited } from "./gmail";
 import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, VENDOR_CODE_TO_NAME, normalizeSupplierName, supplierNameFromMaster } from "./sheets";
 import { extractWithGemini, ExtractedItem } from "./ocr";
 import { getDb } from "./db";
@@ -46,55 +46,7 @@ router.post("/gmail-jobs/:id/downloaded", async (req, res) => {
   }
 });
 
-/** Gmailデバッグ：メール一覧確認（ラベルIDベース） */
-router.get("/gmail-debug", async (_req, res) => {
-  try {
-    const { google } = await import("googleapis");
-    const clientId = process.env.GMAIL_CLIENT_ID;
-    const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-    const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
-    const oauth2Client = new (google.auth.OAuth2 as any)(clientId, clientSecret);
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-    const profile = await gmail.users.getProfile({ userId: "me" });
-
-    // ラベル一覧を取得
-    const labelsRes = await gmail.users.labels.list({ userId: "me" });
-    const allLabels = labelsRes.data.labels || [];
-    const nyukoLabel = allLabels.find((l: any) => l.name === "nyuko-processed");
-    const processedLabelId = nyukoLabel?.id || null;
-
-    // has:attachmentで全件取得
-    const listRes = await gmail.users.messages.list({ userId: "me", q: "has:attachment", maxResults: 20 });
-    const messages = listRes.data.messages || [];
-
-    const details = [];
-    let unprocessedCount = 0;
-    for (const msg of messages.slice(0, 10)) {
-      const m = await gmail.users.messages.get({ userId: "me", id: msg.id!, format: "metadata", metadataHeaders: ["Subject", "From", "Date"] });
-      const headers = m.data.payload?.headers || [];
-      const subject = headers.find((h: any) => h.name === "Subject")?.value || "";
-      const from = headers.find((h: any) => h.name === "From")?.value || "";
-      const date = headers.find((h: any) => h.name === "Date")?.value || "";
-      const msgLabels = m.data.labelIds || [];
-      const isProcessed = processedLabelId ? msgLabels.includes(processedLabelId) : false;
-      if (!isProcessed) unprocessedCount++;
-      details.push({ id: msg.id, subject, from, date, labels: msgLabels, isProcessed });
-    }
-    res.json({
-      email: profile.data.emailAddress,
-      totalMessages: profile.data.messagesTotal,
-      processedLabelId,
-      unprocessedCount,
-      messages: details,
-    });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res.status(500).json({ error: msg });
-  }
-});
-
-/** 手動実行エンドポイント（テスト用） */
+/** 手動実行エンドポイント（「今すぐ取り込む」ボタン用） */
 router.post("/gmail-fetch-now", async (_req, res) => {
   try {
     const result = await processGmailPdfs();
@@ -105,17 +57,6 @@ router.post("/gmail-fetch-now", async (_req, res) => {
   }
 });
 
-/** Heartbeatコールバック（5分ごとに自動実行） */
-router.post("/scheduled/gmail-fetch", async (req, res) => {
-  try {
-    const result = await processGmailPdfs();
-    res.json({ ok: true, ...result });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res.status(500).json({ error: msg, timestamp: new Date().toISOString() });
-  }
-});
-
 /** Gmail PDFを取得して処理するメイン関数 */
 export async function processGmailPdfs(): Promise<{
   processed: number;
@@ -123,6 +64,11 @@ export async function processGmailPdfs(): Promise<{
   errors: string[];
   jobs: Array<{ filename: string; from: string; rows: number; notFound: number }>;
 }> {
+  // レート制限中はGmail APIに一切触れず即終了（Retry afterまで待つ）
+  if (isGmailRateLimited()) {
+    return { processed: 0, skipped: 0, errors: [], jobs: [] };
+  }
+
   const errors: string[] = [];
   const jobResults: Array<{ filename: string; from: string; rows: number; notFound: number }> = [];
   let processed = 0;
@@ -179,11 +125,14 @@ export async function processGmailPdfs(): Promise<{
         errors.push(`${att.filename}: 部分抽出 (${extracted.items.length}件) - ${extracted.error}`);
       }
 
-      // 仕入元プレフィックスを推定
-      let supplierPrefix = extracted.supplier ? guessSupplierPrefix(extracted.supplier) : null;
+      // 仕入元プレフィックスを推定（仕入先名がある場合）
+      // 出庫/入庫伝票（Phezzan伝票）は社内の倉庫⇔店舗移動のためベンダーコードがバラバラ。
+      // 仕入先絞り込みをすると正しく照合できないので、絞り込みなし（全体から照合）にする。
+      const isPhezzanDenpyo = extracted.documentType === "出庫伝票" || extracted.documentType === "入庫伝票";
+      let supplierPrefix = !isPhezzanDenpyo && extracted.supplier ? guessSupplierPrefix(extracted.supplier) : null;
 
       // OCRで会社名が読み取れなかった場合、商品コードのベンダーコードから推定
-      if (!supplierPrefix && extracted.items.length > 0) {
+      if (!isPhezzanDenpyo && !supplierPrefix && extracted.items.length > 0) {
         // 商品コードのベンダープレフィックス（ハイフン前の小文字アルファベット）を集計
         const prefixCounts: Record<string, number> = {};
         for (const item of extracted.items) {
@@ -273,16 +222,19 @@ export async function processGmailPdfs(): Promise<{
       const mergedRows = mergeRowsByCode(rows);
 
       // 仕入先名の解決:
-      // 1. OCR抽出した仕入先名を正規化
-      // 2. 照合済み商品コードのE列（仕入れ先）の実データを最優先（ユーザー指定）
-      // 3. E列が空の場合はプレフィックス逆引き（RAKUMART等の誤検出対策）
+      // 1. 出庫/入庫伝票（Phezzan伝票・社内の倉庫⇔店舗移動）の場合は「Phezzan伝票」に固定（E列優先を適用しない）
+      // 2. OCR抽出した仕入先名を正規化
+      // 3. 照合済み商品コードのE列（仕入れ先）の実データを最優先（ユーザー指定）
+      // 4. E列が空の場合はプレフィックス逆引き（RAKUMART等の誤検出対策）
       let resolvedSupplier = "";
-      if (extracted.supplier) {
+      if (isPhezzanDenpyo) {
+        resolvedSupplier = "Phezzan伝票";
+      } else if (extracted.supplier) {
         const normalized = normalizeSupplierName(extracted.supplier);
         if (normalized) resolvedSupplier = normalized;
       }
       // E列の実データを最優先（CSV出力の名前は必ずE列から）
-      if (rows.length > 0) {
+      if (!isPhezzanDenpyo && rows.length > 0) {
         const fromMaster = supplierNameFromMaster(rows[0].code, products);
         if (fromMaster) {
           resolvedSupplier = fromMaster;

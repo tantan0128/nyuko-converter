@@ -24,6 +24,40 @@ function getGmailClient() {
   return google.gmail({ version: "v1", auth: oauth2Client });
 }
 
+// ============================================================
+// レート制限（User-rate limit）の自己増幅防止
+// 429を受けたら Retry after までGmail APIを呼ばない。
+// 呼び続けると Retry after が毎回再計算され、制限が延長され続けるため。
+// ============================================================
+let gmailRateLimitUntil: number | null = null; // epoch ms
+
+/** エラーメッセージから "Retry after <ISO時刻>" をパースして待機時刻を設定する */
+export function noteGmailRateLimit(err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: number })?.code;
+  if (code !== 429 && !/rate limit/i.test(msg)) return;
+
+  const m = msg.match(/Retry after\s+([\dT:.Z+-]+)/i);
+  const t = m ? Date.parse(m[1]) : NaN;
+  gmailRateLimitUntil = Number.isNaN(t) ? Date.now() + 5 * 60_000 : t;
+}
+
+/** レート制限中なら true（この間はAPI呼び出しをスキップする） */
+export function isGmailRateLimited(): boolean {
+  return gmailRateLimitUntil !== null && Date.now() < gmailRateLimitUntil;
+}
+
+/** レート制限が明けたら呼ぶ（成功応答時にリセット） */
+export function clearGmailRateLimit(): void {
+  gmailRateLimitUntil = null;
+}
+
+/** 残り待機秒数（ログ用） */
+function rateLimitRemainingSec(): number {
+  if (gmailRateLimitUntil === null) return 0;
+  return Math.max(0, Math.ceil((gmailRateLimitUntil - Date.now()) / 1000));
+}
+
 export interface GmailAttachment {
   messageId: string;
   subject: string;
@@ -39,6 +73,12 @@ export interface GmailAttachment {
  * ラベル「nyuko-processed」がついていないメールを対象とする
  */
 export async function fetchUnprocessedPdfEmails(): Promise<GmailAttachment[]> {
+  // レート制限中はAPIを呼ばず即スキップ（Retry afterまで待つ）
+  if (isGmailRateLimited()) {
+    console.log(`[gmail] レート制限中のためGmail取得をスキップ（残り${rateLimitRemainingSec()}秒）`);
+    return [];
+  }
+
   const gmail = getGmailClient();
 
   // 処理済みラベル(nyuko-processed)をクエリで除外。
@@ -121,7 +161,8 @@ export async function fetchUnprocessedPdfEmails(): Promise<GmailAttachment[]> {
       const errMsg = e instanceof Error ? e.message : String(e);
       const code = (e as { code?: number })?.code;
       if (code === 429 || /rate limit/i.test(errMsg)) {
-        console.error(`[gmail] レート制限のため残り${messages.length - attachments.length}件の取得を中断（次回スケジュールで再試行）`);
+        noteGmailRateLimit(e);
+        console.error(`[gmail] レート制限のため残り${messages.length - attachments.length}件の取得を中断（Retry afterまで待機）`);
         break;
       }
       console.error(`[gmail] メッセージ ${msg.id} の取得エラー:`, e);
@@ -172,32 +213,48 @@ export async function markAsProcessed(messageId: string): Promise<void> {
 }
 
 async function getOrCreateLabel(gmail: any, labelName: string): Promise<string> {
-  const listRes = await gmail.users.labels.list({ userId: "me" });
-  const labels = listRes.data.labels || [];
+  try {
+    const listRes = await gmail.users.labels.list({ userId: "me" });
+    const labels = listRes.data.labels || [];
 
-  const existing = labels.find((l: any) => l.name === labelName);
-  if (existing) return existing.id;
+    const existing = labels.find((l: any) => l.name === labelName);
+    if (existing) return existing.id;
 
-  const createRes = await gmail.users.labels.create({
-    userId: "me",
-    requestBody: {
-      name: labelName,
-      labelListVisibility: "labelHide",
-      messageListVisibility: "hide",
-    },
-  });
+    const createRes = await gmail.users.labels.create({
+      userId: "me",
+      requestBody: {
+        name: labelName,
+        labelListVisibility: "labelHide",
+        messageListVisibility: "hide",
+      },
+    });
 
-  return createRes.data.id;
+    return createRes.data.id;
+  } catch (e) {
+    noteGmailRateLimit(e);
+    throw e;
+  }
 }
 
 /** Gmail接続テスト */
 // Gmail Refresh Token renewed 2026-07-23
 export async function testGmailConnection(): Promise<{ ok: boolean; email?: string; error?: string }> {
+  // レート制限中はAPIを呼ばず、キャッシュしたエラーを返す（呼ぶとRetry afterが延長される）
+  if (isGmailRateLimited()) {
+    const remain = rateLimitRemainingSec();
+    const d = new Date(gmailRateLimitUntil!);
+    return {
+      ok: false,
+      error: `User-rate limit exceeded. Retry after ${d.toISOString()}（残り${remain}秒・自動回復待ち）`,
+    };
+  }
   try {
     const gmail = getGmailClient();
     const profile = await gmail.users.getProfile({ userId: "me" });
+    clearGmailRateLimit(); // 成功したら制限フラグをリセット
     return { ok: true, email: profile.data.emailAddress || undefined };
   } catch (e: unknown) {
+    noteGmailRateLimit(e);
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };
   }
