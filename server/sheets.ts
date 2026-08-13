@@ -58,7 +58,7 @@ export const VENDOR_CODE_TO_NAME: Record<string, string> = {
   hy: "ひょ",
   fo: "フォームレディ",
   kc: "晃祐堂",
-  kd: "晃祐堂",
+  kd: "カンダ",
   iz: "インターゼロ",
   wb: "草土",
   yu: "ユープロダクツ",
@@ -161,6 +161,7 @@ export const SUPPLIER_PREFIX_MAP: Record<string, string[]> = {
   an: ["アンツ", "antz"],
   mx: ["メルクロス", "merclos", "melcross"],
   ih: ["市原木工所", "ichihara"],
+  kd: ["カンダ", "kanda"],
 };
 
 /** 仕入先名からプレフィックスを推定 */
