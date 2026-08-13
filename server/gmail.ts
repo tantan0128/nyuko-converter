@@ -86,11 +86,20 @@ export async function fetchUnprocessedPdfEmails(): Promise<GmailAttachment[]> {
   // 処理済みメールも毎回取得してGmail APIのレート制限(User-rate limit)を
   // 自ら発生させていた。クエリ除外で対象件数が激減する。
   // ただしラベルインデックス反映に遅延があるため、後段のラベルチェックも併用する。
-  const listRes = await gmail.users.messages.list({
-    userId: "me",
-    q: "has:attachment -label:nyuko-processed",
-    maxResults: 50,
-  });
+  let listRes;
+  try {
+    listRes = await gmail.users.messages.list({
+      userId: "me",
+      q: "has:attachment -label:nyuko-processed",
+      maxResults: 50,
+    });
+  } catch (e) {
+    // 最初の一覧取得が429で失敗した場合も、Retry afterを記録してスキップ状態にする。
+    // 記録しないと5分ごとに毎回APIを叩いてRetry afterが延び続ける悪循環になる。
+    noteGmailRateLimit(e);
+    console.error("[gmail] メッセージ一覧の取得に失敗（レート制限として記録）:", e instanceof Error ? e.message : String(e));
+    return [];
+  }
 
   const messages = listRes.data.messages || [];
   const attachments: GmailAttachment[] = [];

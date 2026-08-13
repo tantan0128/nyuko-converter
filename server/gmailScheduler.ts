@@ -3,7 +3,7 @@
  * Heartbeat（5分ごと）でGmailを監視し、PDF添付メールを自動処理する
  */
 import express from "express";
-import { fetchUnprocessedPdfEmails, markAsProcessed, testGmailConnection, isGmailRateLimited } from "./gmail";
+import { fetchUnprocessedPdfEmails, markAsProcessed, testGmailConnection, isGmailRateLimited, noteGmailRateLimit } from "./gmail";
 import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, appendDeliveryKeyword, VENDOR_CODE_TO_NAME, normalizeSupplierName, supplierNameFromMaster } from "./sheets";
 import { extractWithGemini, ExtractedItem } from "./ocr";
 import { getDb } from "./db";
@@ -79,10 +79,6 @@ export async function processGmailPdfs(): Promise<{
 
   // 未処理PDFメールを取得
   const attachments = await fetchUnprocessedPdfEmails();
-
-  if (attachments.length === 0) {
-    return { processed: 0, skipped: 0, errors: [], jobs: [] };
-  }
 
   const db = await getDb();
 

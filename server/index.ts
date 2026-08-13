@@ -9,6 +9,7 @@ import cron from "node-cron";
 import processRouter from "./processRouter";
 import syncRouter from "./syncRouter";
 import gmailSchedulerRouter, { processGmailPdfs } from "./gmailScheduler";
+import { noteGmailRateLimit } from "./gmail";
 import { getSyncStatus, fetchFromSpreadsheet, syncProductsToDB } from "./sheets";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -80,6 +81,8 @@ function startGmailScheduler() {
         console.log(`[cron] Gmail処理: ${result.processed}件処理 / ${result.skipped}件スキップ / エラー${result.errors.length}件`);
       }
     } catch (e) {
+      // 429（レート制限）はRetry afterを記録して以後スキップする（自己増幅防止）
+      noteGmailRateLimit(e);
       console.error("[cron] Gmail定期処理エラー:", e instanceof Error ? e.message : String(e));
     }
   });
