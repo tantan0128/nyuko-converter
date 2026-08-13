@@ -318,6 +318,12 @@ export async function appendDeliveryKeyword(
   code: string,
   keyword: string
 ): Promise<{ ok: boolean; error?: string }> {
+  // JANコード（数字のみ8桁以上）はD列に追記しない。
+  // JANはA列が正本であり、D列に入れても照合に使われず誤データになるため。
+  if (isJanLike(keyword)) {
+    return { ok: true, error: undefined };
+  }
+
   const spreadsheetId = process.env.SPREADSHEET_ID;
   if (!spreadsheetId) return { ok: false, error: "SPREADSHEET_ID が設定されていません" };
 
@@ -624,6 +630,11 @@ export function normalizeCodeKey(s: string): string {
 /** 数字のみのキーから先頭ゼロを除去する（ゼロ埋め差異の吸収） */
 function stripLeadingZeros(s: string): string {
   return s.replace(/^0+(?=\d)/, "");
+}
+
+/** 数字のみ8桁以上はJANコードとみなす（D列追記対象外・JANはA列が正本のため） */
+export function isJanLike(s: string): boolean {
+  return /^\d{8,}$/.test((s || "").trim());
 }
 
 /**

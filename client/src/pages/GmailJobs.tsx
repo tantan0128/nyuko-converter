@@ -62,8 +62,9 @@ export default function GmailJobs() {
         .replace(/\s*\[品番:[^\]]+\]/g, "")
         .replace(/\s*\[JAN:[^\]]+\]/g, "")
         .trim();
-      // D列に登録する内容: supplierCode > jan > productName
-      const keywordToRegister = supplierCode || jan || productName;
+      // D列に登録する内容: supplierCode > productName
+      // JANはA列が正本のためD列には登録しない（D列に入れても照合に使われず誤データになる）
+      const keywordToRegister = supplierCode || productName;
 
       const res = await fetch("/api/register-keyword", {
         method: "POST",

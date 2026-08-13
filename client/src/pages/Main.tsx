@@ -272,8 +272,9 @@ export default function Main() {
   };
 
   const openModal = (item: NotFoundItem) => {
-    // D列に登録するキーワードは精度が高いものを優先: 仕入先品番 > JAN > 商品名
-    const keyword = item.supplierCode || item.jan || item.productName;
+    // D列に登録するキーワードは精度が高いものを優先: 仕入先品番 > 商品名
+    // JANはA列が正本のためD列には登録しない（D列に入れても照合に使われず誤データになる）
+    const keyword = item.supplierCode || item.productName;
     setModal({ open: true, productName: item.productName, keyword, code: "", registering: false });
     setNotFoundModal({ open: false, items: [] });
   };

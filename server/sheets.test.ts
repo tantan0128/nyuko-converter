@@ -7,6 +7,7 @@ import {
   filterBySupplier,
   guessSupplierPrefix,
   normalizeSupplierName,
+  isJanLike,
 } from "./sheets";
 
 // ProductRecord 型に合わせ deliveryKeywords / supplier を含める
@@ -218,5 +219,25 @@ describe("normalizeSupplierName（E列実データベースの正規化）", () 
 
   it("片力商事を標準名に正規化する", () => {
     expect(normalizeSupplierName("片力商事")).toBe("片力商事");
+  });
+});
+
+describe("isJanLike（JAN判定）", () => {
+  it("数字のみ8桁以上はJANとみなす", () => {
+    expect(isJanLike("0028295262927")).toBe(true); // 13桁JAN
+    expect(isJanLike("28295262927")).toBe(true); // 先頭0が消えたJAN（11桁）
+    expect(isJanLike("719812018294")).toBe(true); // 12桁
+  });
+
+  it("文字入りのコード（ベンダー品番・商品コード）はJANとみなさない", () => {
+    expect(isJanLike("sa-4573146013778")).toBe(false); // コード+JAN（納品書実在表記）
+    expect(isJanLike("sa-yakisugiita-dai")).toBe(false); // 文字コード
+    expect(isJanLike("CMG-350-W")).toBe(false);
+    expect(isJanLike("MATCHA-1")).toBe(false);
+    expect(isJanLike("")).toBe(false);
+  });
+
+  it("7桁以下の数字（品番等）はJANとみなさない", () => {
+    expect(isJanLike("1234567")).toBe(false);
   });
 });
