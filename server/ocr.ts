@@ -20,6 +20,7 @@ export interface ExtractedItem {
 export interface ExtractedData {
   date?: string;
   supplier?: string;
+  documentType?: string; // 書類タイトル（"出庫伝票"等）。通常の納品書は空
   items: ExtractedItem[];
   error?: string;
 }
@@ -138,6 +139,14 @@ export async function extractWithGemini(
 
 ■ 仕入先名（supplier）
 - 書類を発行した会社名（送り主）を返す
+- 社内用の「出庫伝票」（倉庫→店舗の在庫移動）の場合は、発行元が自社のため supplier は「」を返す
+
+■ 書類タイトル（documentType）
+- 書類のタイトルを判定し、以下のいずれかを返す
+- タイトルに「出庫伝票」「出庫」と明記されている場合: "出庫伝票" を返す
+- タイトルに「入庫伝票」「入庫」と明記されている場合: "入庫伝票" を返す
+- 納品書・発注書・請求書・その他の通常の書類: ""（空文字）を返す
+- タイトルが読み取れない場合も ""（空文字）を返す
 
 【絶対に抽出しないもの（これらは商品ではない）】
 - 「下記のとおり納品いたしました」「上記の通り」「ご確認」などの挨拶文・定型文
@@ -155,6 +164,7 @@ export async function extractWithGemini(
 {
   "date": "YYYY/MM/DD",
   "supplier": "会社名",
+  "documentType": "",
   "items": [
     {
       "jan": "4977642221826",
@@ -188,6 +198,7 @@ export async function extractWithGemini(
           properties: {
             date: { type: "STRING" },
             supplier: { type: "STRING" },
+            documentType: { type: "STRING" },
             items: {
               type: "ARRAY",
               items: {
@@ -243,6 +254,7 @@ export async function extractWithGemini(
     const parsed = JSON.parse(jsonStr) as {
       date?: string;
       supplier?: string;
+      documentType?: string;
       items?: Array<{
         jan?: string;
         supplierCode?: string;
@@ -272,6 +284,7 @@ export async function extractWithGemini(
     return {
       date: parsed.date || undefined,
       supplier: parsed.supplier?.trim() || undefined,
+      documentType: parsed.documentType?.trim() || undefined,
       items,
     };
   } catch (e: unknown) {

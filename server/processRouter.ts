@@ -32,6 +32,7 @@ router.post("/process", upload.array("files", 20), async (req, res) => {
   const notFound: Array<{ label: string; productName: string; quantity: number; supplierCode?: string; jan?: string }> = [];
   const errors: string[] = [];
   let detectedSupplier = ""; // Geminiが抽出した仕入先名
+  let isPhezzanDenpyo = false; // 出庫伝票/入庫伝票（社内の倉庫⇔店舗在庫移動）判定
 
   try {
     // Load product master
@@ -49,8 +50,17 @@ router.post("/process", upload.array("files", 20), async (req, res) => {
     for (const file of files) {
       logs.push(`処理開始: ${file.originalname}`);
       try {
-        const supplier = await processImageOrPDF(file, mode, products, allRows, notFound, errors, logs);
-        if (supplier && !detectedSupplier) detectedSupplier = supplier;
+        const result = await processImageOrPDF(file, mode, products, allRows, notFound, errors, logs);
+        if (result?.supplier && !detectedSupplier) detectedSupplier = result.supplier;
+        // Phezzan伝票判定（出庫伝票/入庫伝票）: GeminiのdocumentType / ファイル名 / 仕入先名のいずれかで検出
+        if (
+          result?.documentType === "出庫伝票" ||
+          result?.documentType === "入庫伝票" ||
+          isPhezzanDenpyoFile(file.originalname) ||
+          (result?.supplier && /出庫伝票|入庫伝票|出庫|入庫/.test(result.supplier))
+        ) {
+          isPhezzanDenpyo = true;
+        }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         errors.push(`${file.originalname}: ${msg}`);
@@ -63,14 +73,18 @@ router.post("/process", upload.array("files", 20), async (req, res) => {
     logs.push(`合算後: ${mergedRows.length}件（合算前: ${allRows.length}件）`);
 
     // 仕入先名の解決:
-    // 1. OCR抽出した仕入先名を正規化（「株式会社 三陽エース」→「三陽エース」）
-    // 2. 照合済み商品コードのE列（仕入れ先）の実データを最優先（ユーザー指定）
-    // 3. E列が空の場合はプレフィックス逆引き（RAKUMART等の誤検出対策）
-    if (detectedSupplier) {
+    // 1. 出庫伝票/入庫伝票（社内の倉庫⇔店舗在庫移動）の場合は「Phezzan伝票」に固定（E列優先を適用しない）
+    // 2. OCR抽出した仕入先名を正規化（「株式会社 三陽エース」→「三陽エース」）
+    // 3. 照合済み商品コードのE列（仕入れ先）の実データを最優先（ユーザー指定）
+    // 4. E列が空の場合はプレフィックス逆引き（RAKUMART等の誤検出対策）
+    if (isPhezzanDenpyo) {
+      detectedSupplier = "Phezzan伝票";
+      logs.push("出庫/入庫伝票と判定: 仕入先名を「Phezzan伝票」に固定");
+    } else if (detectedSupplier) {
       const normalized = normalizeSupplierName(detectedSupplier);
       if (normalized) detectedSupplier = normalized;
     }
-    if (mergedRows.length > 0) {
+    if (!isPhezzanDenpyo && mergedRows.length > 0) {
       const code = mergedRows[0].code;
       const fromMaster = supplierNameFromMaster(code, products);
       if (fromMaster) detectedSupplier = fromMaster; // E列の実データを最優先
@@ -85,6 +99,11 @@ router.post("/process", upload.array("files", 20), async (req, res) => {
 
 type NotFoundItem = { label: string; productName: string; quantity: number; supplierCode?: string; jan?: string };
 
+/** ファイル名から出庫伝票/入庫伝票（Phezzan伝票）を判定する */
+function isPhezzanDenpyoFile(filename: string): boolean {
+  return /出庫伝票|入庫伝票|出庫票|入庫票/.test(filename || "");
+}
+
 async function processImageOrPDF(
   file: Express.Multer.File,
   mode: string,
@@ -93,7 +112,7 @@ async function processImageOrPDF(
   notFound: NotFoundItem[],
   errors: string[],
   logs: string[]
-): Promise<string | undefined> {
+): Promise<{ supplier?: string; documentType?: string }> {
   const mimeType = file.mimetype;
 
   logs.push(`Gemini直接処理: ${file.originalname} (${mimeType})`);
@@ -112,7 +131,7 @@ async function processImageOrPDF(
     // エラーでも抽出できた商品があれば未照合として追加
     if (!extracted.items || extracted.items.length === 0) {
       errors.push(`${file.originalname}: ${extracted.error}`);
-      return undefined;
+      return { supplier: undefined, documentType: undefined };
     }
     logs.push(`エラーあり・部分抽出: ${extracted.items.length}件を未照合として処理`);
   }
@@ -123,9 +142,13 @@ async function processImageOrPDF(
   // name_pdf モードは商品名・商品コードで照合
   const useProductName = mode === "name_pdf";
 
-  // 仕入元プレフィックスを推定（仕入先名がある場合）
-  const supplierPrefix = extracted.supplier ? guessSupplierPrefix(extracted.supplier) : null;
-  if (supplierPrefix) {
+  // 出庫/入庫伝票（Phezzan伝票）は社内の倉庫⇔店舗移動のためベンダーコードがバラバラ。
+  // 仕入先絞り込みをすると正しく照合できないので、絞り込みなし（全体から照合）にする。
+  const isPhezzan = extracted.documentType === "出庫伝票" || extracted.documentType === "入庫伝票";
+  const supplierPrefix = !isPhezzan && extracted.supplier ? guessSupplierPrefix(extracted.supplier) : null;
+  if (isPhezzan) {
+    logs.push(`Phezzan伝票（${extracted.documentType}）: 仕入先絞り込みなしで照合`);
+  } else if (supplierPrefix) {
     logs.push(`仕入元推定: ${extracted.supplier} → プレフィックス「${supplierPrefix}-」で絞り込み`);
   }
 
@@ -219,7 +242,7 @@ async function processImageOrPDF(
     }
   }
 
-  return detectedSupplierName;
+  return { supplier: detectedSupplierName, documentType: extracted.documentType };
 }
 
 /** 同一コードの行を数量合算して1行にまとめる */
