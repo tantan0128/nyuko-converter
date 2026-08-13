@@ -8,6 +8,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { appSuspensionMiddleware } from "./appSuspension";
 import processRouter from "../processRouter";
 import syncRouter from "../syncRouter";
 import gmailSchedulerRouter from "../gmailScheduler";
@@ -38,6 +39,7 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use(appSuspensionMiddleware);
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   // Custom process router for OCR/AI processing

@@ -11,6 +11,10 @@ export interface GmailCredentials {
 }
 
 function getGmailClient() {
+  if (process.env.GMAIL_INTEGRATION_ENABLED === "false") {
+    throw new Error("Gmail連携は無効化されています");
+  }
+
   const clientId = process.env.GMAIL_CLIENT_ID;
   const clientSecret = process.env.GMAIL_CLIENT_SECRET;
   const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
