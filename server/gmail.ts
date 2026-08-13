@@ -41,23 +41,28 @@ export interface GmailAttachment {
 export async function fetchUnprocessedPdfEmails(): Promise<GmailAttachment[]> {
   const gmail = getGmailClient();
 
-  // nyuko-processedラベルIDを取得
-  const processedLabelId = await getOrCreateLabel(gmail, "nyuko-processed");
-
-  // 未処理の添付メールを取得（クエリはインデックス遅延の影響を受けるため、ラベルIDでフィルタリング）
+  // 処理済みラベル(nyuko-processed)をクエリで除外。
+  // 以前は has:attachment で全件取得→個別にラベル確認していたため、
+  // 処理済みメールも毎回取得してGmail APIのレート制限(User-rate limit)を
+  // 自ら発生させていた。クエリ除外で対象件数が激減する。
+  // ただしラベルインデックス反映に遅延があるため、後段のラベルチェックも併用する。
   const listRes = await gmail.users.messages.list({
     userId: "me",
-    q: "has:attachment",
+    q: "has:attachment -label:nyuko-processed",
     maxResults: 50,
   });
 
-  // ラベルIDで未処理のみフィルタリング
-  const allMessages = listRes.data.messages || [];
-  const messages = allMessages.filter(msg => {
-    // メッセージのラベルは後で確認するため、ここでは全件返す
-    return true;
-  });
+  const messages = listRes.data.messages || [];
   const attachments: GmailAttachment[] = [];
+
+  // ラベルチェック用のIDを取得（クエリ除外の遅延フォールバック用）。
+  // レート制限中にlabels.listも失敗しうるため、失敗しても続行する。
+  let processedLabelId: string | null = null;
+  try {
+    processedLabelId = await getOrCreateLabel(gmail, "nyuko-processed");
+  } catch (e) {
+    console.error("[gmail] nyuko-processedラベルIDの取得に失敗（クエリ除外のみで継続）:", e instanceof Error ? e.message : String(e));
+  }
 
   for (const msg of messages) {
     if (!msg.id) continue;
@@ -69,9 +74,9 @@ export async function fetchUnprocessedPdfEmails(): Promise<GmailAttachment[]> {
         format: "full",
       });
 
-      // 処理済ラベルIDが付いている場合はスキップ
+      // 処理済ラベルIDが付いている場合はスキップ（クエリ除外の遅延フォールバック）
       const msgLabels = msgRes.data.labelIds || [];
-      if (msgLabels.includes(processedLabelId)) continue;
+      if (processedLabelId && msgLabels.includes(processedLabelId)) continue;
 
       const payload = msgRes.data.payload;
       if (!payload) continue;
@@ -110,7 +115,15 @@ export async function fetchUnprocessedPdfEmails(): Promise<GmailAttachment[]> {
           data: buffer,
         });
       }
-    } catch (e) {
+    } catch (e: unknown) {
+      // レート制限エラー(429)は残りのメッセージ取得を中断し、次回スケジュールに回す。
+      // 制限中も全件試行し続けると Retry after がどんどん延びる悪循環になるため。
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const code = (e as { code?: number })?.code;
+      if (code === 429 || /rate limit/i.test(errMsg)) {
+        console.error(`[gmail] レート制限のため残り${messages.length - attachments.length}件の取得を中断（次回スケジュールで再試行）`);
+        break;
+      }
       console.error(`[gmail] メッセージ ${msg.id} の取得エラー:`, e);
     }
   }
