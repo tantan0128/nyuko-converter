@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import iconv from "iconv-lite";
 import { extractWithGemini } from "./ocr";
-import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, normalizeSupplierName, supplierNameFromMaster, appendDeliveryKeyword, appendKeywordByName, fetchJunidouList } from "./sheets";
+import { loadProductMaster, matchByJan, matchByName, matchBySupplierCode, guessSupplierPrefix, normalizeSupplierName, supplierNameFromMaster, appendDeliveryKeyword, appendKeywordByName, fetchJunidouList, fetchFromSpreadsheet, syncProductsToDB, clearCache } from "./sheets";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -300,18 +300,31 @@ router.post("/register-keyword", express.json(), async (req, res) => {
     // 自社コードが指定されている場合は、B列完全一致で確実にその行へ登録する（精度最優先）
     if (code && code.trim()) {
       const result = await appendDeliveryKeyword(code.trim(), keywordToRegister);
+      if (result.ok) await resyncAfterKeywordRegister();
       return res.json(result);
     }
 
     const pn = productName?.trim() || undefined;
     // productNameがあればそれでC列を検索し、keywordToRegisterをD列に登録
     const result = await appendKeywordByName(keywordToRegister, pn);
+    if (result.ok) await resyncAfterKeywordRegister();
     res.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     res.status(500).json({ ok: false, error: msg });
   }
 });
+
+/** D列登録後にDB再同期して即時反映する（照合はDB+5分キャッシュを参照するため） */
+async function resyncAfterKeywordRegister(): Promise<void> {
+  try {
+    const records = await fetchFromSpreadsheet();
+    await syncProductsToDB(records);
+    clearCache();
+  } catch (e) {
+    console.warn("[register-keyword] DB再同期に失敗（次回の自動再同期で反映されます）:", e instanceof Error ? e.message : String(e));
+  }
+}
 
 /** 十二堂CSV変換エンドポイント
  * Shift-JISのCSVを受け取り、十二堂商品リストで照合して助ネコ在庫CSV形式で出力 */

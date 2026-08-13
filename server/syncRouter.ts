@@ -49,26 +49,7 @@ router.get("/product-codes", async (_req, res) => {
 });
 
 /** 納品書キーワードをD列に追記しDB再同期 */
-router.post("/register-keyword", express.json(), async (req, res) => {
-  const { code, keyword } = req.body as { code: string; keyword: string };
-  if (!code || !keyword) {
-    return res.status(400).json({ error: "codeとkeywordは必須です" });
-  }
-  try {
-    // スプレッドシートD列に追記
-    const result = await appendDeliveryKeyword(code, keyword);
-    if (!result.ok) {
-      return res.status(500).json({ error: result.error });
-    }
-    // DB再同期
-    const records = await fetchFromSpreadsheet();
-    await syncProductsToDB(records);
-    clearCache();
-    res.json({ ok: true, message: `キーワード「${keyword}」を登録し、${records.length}件再同期しました` });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res.status(500).json({ error: msg });
-  }
-});
+// 注: register-keyword は processRouter 側に統合済み（D列書き込み+DB再同期+キャッシュクリア）。
+//      Expressは登録順（processRouter→syncRouter）で処理するため、こちらは到達しない重複定義だった。
 
 export default router;
