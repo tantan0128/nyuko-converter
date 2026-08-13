@@ -105,6 +105,16 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+*.db-shm
+*.db-wal
+*.db.bak*
+data/*.bak*
+
+# 一時バックアップ
+.env.bak*
+
+# Manus残骸
+.manus/
 
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/

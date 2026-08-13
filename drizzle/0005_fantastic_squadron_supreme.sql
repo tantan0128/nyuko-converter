@@ -1,1 +1,0 @@
-ALTER TABLE `gmail_jobs` ADD `downloadedAt` timestamp;

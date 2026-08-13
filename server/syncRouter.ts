@@ -1,5 +1,5 @@
 import express from "express";
-import { fetchFromSpreadsheet, syncProductsToDB, getSyncStatus, clearCache, appendDeliveryKeyword } from "./sheets";
+import { fetchFromSpreadsheet, syncProductsToDB, getSyncStatus, clearCache } from "./sheets";
 
 const router = express.Router();
 

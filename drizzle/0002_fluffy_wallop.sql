@@ -1,1 +1,0 @@
-ALTER TABLE `products` ADD `deliveryKeywords` text DEFAULT ('') NOT NULL;
